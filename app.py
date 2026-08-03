@@ -10,7 +10,7 @@ VACINAS = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "Dt", "DTP", "DTPa adulto",
     "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C",
     "PENTA", "PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS",
-    "PNEUMO 10", "ROTAVIRUS", "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
+    "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
 ]
 
 # Distritos mapeados com as UBSs (Postos) de Guarabira
