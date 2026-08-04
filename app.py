@@ -27,7 +27,7 @@ with tab1:
         ["Distrito 1", "Distrito 2", "Distrito 3", "Distrito 4"]
     )
     
-    # Dicionário dinâmico com as UBS corretas de acordo com os distritos
+    # Dicionário dinâmico com as UBS corretas de acordo com os distritos de Guarabira
     ubs_por_distrito = {
         "Distrito 1": ["Alto", "Bairro Novo I", "Bairro Novo II", "Cordeiro", "Primavera"],
         "Distrito 2": ["Juá", "Nações", "Nordeste I", "Nordeste II", "Nordeste III"],
@@ -59,25 +59,30 @@ with tab1:
         if "df_rotina" not in st.session_state:
             st.session_state.df_rotina = pd.DataFrame({
                 "VACINA": [
-                    "BCG", 
-                    "DTP", 
-                    "dT (Dupla Adulto)", 
-                    "dTpa", 
-                    "Febre Amarela", 
-                    "Hepatite A", 
-                    "Hepatite B", 
-                    "Meningo C", 
-                    "Papilomavírus Humano (HPV)", 
-                    "Pentavalente", 
-                    "Pneumo 10", 
-                    "Pneumo 20", 
-                    "Poliomielite VIP/VOP", 
-                    "Rotavírus", 
-                    "Tetra Viral", 
-                    "Tríplice Viral (SCR)", 
-                    "Varicela"
+                    "ACWY",
+                    "ANTIR. HUMANA",
+                    "DENGUE",
+                    "DTP",
+                    "DTPa adulto",
+                    "Dt",
+                    "F. AMARELA",
+                    "HEPAT. A",
+                    "HEPAT. B",
+                    "HPV",
+                    "INFLUENZA",
+                    "MENIN. C",
+                    "PENTA",
+                    "PNEUMO 10",
+                    "PNEUMO 20",
+                    "ROTAVIRUS",
+                    "T. VIRAL",
+                    "TETRA",
+                    "VARICELA",
+                    "VIP",
+                    "VIT. A",
+                    "VSR GRAVIDA"
                 ],
-                "QUANTIDADE": [0]*17
+                "QUANTIDADE": [0]*22
             })
         df_editado = st.data_editor(st.session_state.df_rotina, hide_index=True, use_container_width=True, key="editor_rotina")
     else:
