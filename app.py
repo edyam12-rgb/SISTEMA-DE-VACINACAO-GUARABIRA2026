@@ -48,6 +48,28 @@ with tab1:
     
     st.markdown("---")
     
+    # Inicializa os DataFrames no session_state se não existirem
+    if "df_rotina" not in st.session_state:
+        st.session_state.df_rotina = pd.DataFrame({
+            "VACINA": [
+                "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
+                "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
+                "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
+                "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
+            ],
+            "QUANTIDADE": [0]*22
+        })
+
+    if "df_covid" not in st.session_state:
+        st.session_state.df_covid = pd.DataFrame({
+            "VACINA": [
+                "PFIZER ADULTO", 
+                "PFIZER PED 06 A 4 ANOS", 
+                "PFIZER PED. 05 A 11 ANOS"
+            ],
+            "QUANTIDADE": [0, 0, 0]
+        })
+
     # Seleção de Categoria para facilitar o lançamento
     categoria_vacina = st.radio(
         "Selecione o grupo de vacinas:",
@@ -56,27 +78,8 @@ with tab1:
     )
     
     if categoria_vacina == "💉 Vacinas de Rotina":
-        if "df_rotina" not in st.session_state:
-            st.session_state.df_rotina = pd.DataFrame({
-                "VACINA": [
-                    "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
-                    "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
-                    "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
-                    "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
-                ],
-                "QUANTIDADE": [0]*22
-            })
         df_editado = st.data_editor(st.session_state.df_rotina, hide_index=True, use_container_width=True, key="editor_rotina")
     else:
-        if "df_covid" not in st.session_state:
-            st.session_state.df_covid = pd.DataFrame({
-                "VACINA": [
-                    "PFIZER ADULTO", 
-                    "PFIZER PED 06 A 4 ANOS", 
-                    "PFIZER PED. 05 A 11 ANOS"
-                ],
-                "QUANTIDADE": [0, 0, 0]
-            })
         df_editado = st.data_editor(st.session_state.df_covid, hide_index=True, use_container_width=True, key="editor_covid")
 
     if st.button("💾 Salvar Lançamento no Servidor", type="primary"):
@@ -85,22 +88,21 @@ with tab1:
         if not df_salvar.empty:
             try:
                 with conn.session as s:
-                    vacinas_da_categoria = df_editado["VACINA"].tolist()
-                    
+                    # CORREÇÃO PRINCIPAL: Apaga TODOS os registros desta UBS e Turno 
+                    # antes de inserir, evitando duplicação por cliques múltiplos.
                     sql_delete = text("""
                         DELETE FROM registros_vacinacao 
                         WHERE distrito = :distrito 
                           AND unidade_saude = :ubs 
                           AND turno = :turno
-                          AND vacina = ANY(:lista_vacinas)
                     """)
                     s.execute(sql_delete, {
                         "distrito": distrito_selecionado,
                         "ubs": ubs_selecionada,
-                        "turno": turno_selecionado,
-                        "lista_vacinas": vacinas_da_categoria
+                        "turno": turno_selecionado
                     })
 
+                    # Insere os valores atuais que estão na tela para esta categoria
                     for _, row in df_salvar.iterrows():
                         sql_insert = text("""
                             INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
@@ -125,7 +127,7 @@ with tab1:
 with tab2:
     st.markdown("### 📊 Painel Geral e Download")
 
-    col_btn1, col_btn2 = st.columns([1, 4])
+    col_btn1, _ = st.columns([1, 4])
     
     with col_btn1:
         if st.button("🔄 Puxar Dados"):
