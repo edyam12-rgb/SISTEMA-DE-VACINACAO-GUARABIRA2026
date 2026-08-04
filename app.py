@@ -40,7 +40,11 @@ with tab1:
         ubs_por_distrito.get(distrito_selecionado, [])
     )
     
-    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã", "Tarde", "Integral"])
+    # Seleção de Turnos atualizada
+    turno_selecionado = st.selectbox(
+        "Selecione o Turno:", 
+        ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+    )
     
     st.markdown("---")
     
@@ -55,21 +59,34 @@ with tab1:
         if "df_rotina" not in st.session_state:
             st.session_state.df_rotina = pd.DataFrame({
                 "VACINA": [
-                    "BCG", "Hepatite B", "Pentavalente", "Poliomielite VIP/VOP", 
-                    "Rotavírus", "Pneumo 10", "Meningo C", "Febre Amarela", 
-                    "Tríplice Viral (SCR)", "Tetra Viral", "Hepatite A", 
-                    "DTP", "Varicela", "Papilomavírus Humano (HPV)", "dT (Dupla Adulto)", "dTpa"
+                    "BCG", 
+                    "DTP", 
+                    "dT (Dupla Adulto)", 
+                    "dTpa", 
+                    "Febre Amarela", 
+                    "Hepatite A", 
+                    "Hepatite B", 
+                    "Meningo C", 
+                    "Papilomavírus Humano (HPV)", 
+                    "Pentavalente", 
+                    "Pneumo 10", 
+                    "Pneumo 20", 
+                    "Poliomielite VIP/VOP", 
+                    "Rotavírus", 
+                    "Tetra Viral", 
+                    "Tríplice Viral (SCR)", 
+                    "Varicela"
                 ],
-                "QUANTIDADE": [0]*16
+                "QUANTIDADE": [0]*17
             })
         df_editado = st.data_editor(st.session_state.df_rotina, hide_index=True, use_container_width=True, key="editor_rotina")
     else:
         if "df_covid" not in st.session_state:
             st.session_state.df_covid = pd.DataFrame({
                 "VACINA": [
-                    "COVID-19 Monovalente Pediátrica", 
+                    "COVID-19 (Outras / Ajustadas)", 
                     "COVID-19 Bivalente", 
-                    "COVID-19 (Outras / Ajustadas)"
+                    "COVID-19 Monovalente Pediátrica"
                 ],
                 "QUANTIDADE": [0, 0, 0]
             })
@@ -81,8 +98,6 @@ with tab1:
         if not df_salvar.empty:
             try:
                 with conn.session as s:
-                    # Limpa os registros anteriores desta UBS, Turno E da categoria específica salva
-                    # para evitar duplicação mantendo o restante intacto
                     vacinas_da_categoria = df_editado["VACINA"].tolist()
                     
                     sql_delete = text("""
@@ -99,7 +114,6 @@ with tab1:
                         "lista_vacinas": vacinas_da_categoria
                     })
 
-                    # Insere os valores atuais exatos que estão na tela
                     for _, row in df_salvar.iterrows():
                         sql_insert = text("""
                             INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
