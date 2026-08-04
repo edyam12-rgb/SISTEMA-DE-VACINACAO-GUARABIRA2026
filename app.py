@@ -1,69 +1,97 @@
 import streamlit as st
 import pandas as pd
-import io
 from sqlalchemy import text
+import io
 
-# Configuração da Página
-st.set_page_config(page_title="Lançamento - Dia D", page_icon="💉", layout="wide")
+# Configuração da página
+st.set_page_config(page_title="Sistema de Lançamento de Vacinas - Dia D", layout="wide")
 
-# Inicializa conexão oficial com o PostgreSQL via Streamlit
-conn = st.connection("postgresql", type="sql")
-
-# Lista de vacinas 
-VACINAS = [
-    "ACWY", "ANTIR. HUMANA", "COVID BIVALENTE", "DENGUE", "Dt", "DTP", "DTPa adulto",
-    "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C",
-    "PENTA", "PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS",
-    "PNEUMO 10", "ROTAVIRUS", "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
-]
-
-# Distritos mapeados
-DISTRITOS_UBS = {
-    "DISTRITO 1": ['ALTO', 'B NOVO I', 'B NOVO II', 'CORDEIRO', 'PRIMAVERA'],
-    "DISTRITO 2": ['JUA', 'NACOES', 'NORDESTE I', 'NORDESTE II', 'NORDESTE III'],
-    "DISTRITO 3": ['ASSIS', 'CLOVIS', 'ROSARIO', 'SÃO JOSE', 'STA TEREZINHA'],
-    "DISTRITO 4": ['CACHOEIRA', 'CONTENDAS', 'MUTIRAO', 'PIRPIRI', 'TANANDUBA']
-}
-
-TURNOS = [
-    "MANHÃ (Até 11h)", 
-    "TARDE 1 (Das 11h às 15h)", 
-    "TARDE 2 (Das 15h às 16h)"
-]
+# Conexão com o banco de dados PostgreSQL via Streamlit
+try:
+    conn = st.connection("postgresql", type="sql")
+except Exception as e:
+    st.error("Erro ao configurar a conexão com o banco de dados.")
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
+# Abas do sistema
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
-# --- ABA 1: LANÇAMENTO DE DADOS ---
+# --- ABA 1: LANÇAMENTO ---
 with tab1:
-    st.markdown("### 📌 Lançamento de Quantidades Aplicadas")
+    st.subheader("Painel de Lançamento por Posto de Saúde")
     
-    col1, col2, col3 = st.columns(3)
-    distrito_selecionado = col1.selectbox("Selecione o Distrito:", list(DISTRITOS_UBS.keys()))
-    ubs_selecionada = col2.selectbox("Selecione o Posto de Saúde:", DISTRITOS_UBS[distrito_selecionado])
-    turno_selecionado = col3.selectbox("Selecione o Turno:", TURNOS)
+    # Seleções de Distrito, UBS e Turno (ajuste conforme as variáveis do seu código original)
+    distrito_selecionado = st.selectbox("Selecione o Distrito:", ["Distrito 1", "Distrito 2", "Distrito 3", "Distrito 4"])
+    ubs_selecionada = st.text_input("Nome da Unidade de Saúde (UBS):")
+    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã", "Tarde", "Noite"])
     
     st.markdown("---")
-    st.write(f"Preencha as vacinas aplicadas em **{ubs_selecionada} ({distrito_selecionado})** no turno **{turno_selecionado}**:")
+    st.markdown("### Digite as quantidades aplicadas por vacina:")
     
-    df_entrada = pd.DataFrame({"VACINA": VACINAS, "QUANTIDADE": [0] * len(VACINAS)})
+    # Exemplo de tabela editável de vacinas (substitua pelo seu dataframe original de vacinas se necessário)
+    if "df_vazios" not in st.session_state:
+        st.session_state.df_vazios = pd.DataFrame({
+            "VACINA": ["BCG", "Hepatite B", "Poliomielite", "Pentavalente", "Tríplice Viral", "Febre Amarela"],
+            "QUANTIDADE": [0, 0, 0, 0, 0, 0]
+        })
     
-    df_editado = st.data_editor(
-        df_entrada,
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "VACINA": st.column_config.TextColumn("Imunobiológico", disabled=True),
-            "QUANTIDADE": st.column_config.NumberColumn("Quantidade Aplicada", min_value=0, step=1)
-        }
-    )
-    
+    df_editado = st.data_editor(st.session_state.df_vazios, hide_index=True, use_container_width=True)
+
     if st.button("💾 Salvar Lançamento no Servidor", type="primary"):
         df_salvar = df_editado[df_editado["QUANTIDADE"] > 0].copy()
-        
+
         if not df_salvar.empty:
-            try:
+            if not ubs_selecionada.strip():
+                st.warning("Por favor, preencha o nome da Unidade de Saúde (UBS).")
+            else:
+                try:
+                    # Transação no banco de dados para segurança
+                    with conn.session as s:
+                        # 1. Limpa os registros anteriores desta UBS e Turno específicos
+                        # para evitar que os valores se multipliquem ao salvar novamente.
+                        sql_delete = text("""
+                            DELETE FROM registros_vacinacao 
+                            WHERE distrito = :distrito 
+                              AND unidade_saude = :ubs 
+                              AND turno = :turno
+                        """)
+                        s.execute(sql_delete, {
+                            "distrito": distrito_selecionado,
+                            "ubs": ubs_selecionada,
+                            "turno": turno_selecionado
+                        })
+
+                        # 2. Insere os valores atuais exatos que estão na tela
+                        for _, row in df_salvar.iterrows():
+                            sql_insert = text("""
+                                INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
+                                VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
+                            """)
+                            s.execute(sql_insert, {
+                                "distrito": distrito_selecionado,
+                                "ubs": ubs_selecionada,
+                                "turno": turno_selecionado,
+                                "vacina": row["VACINA"],
+                                "quantidade": row["QUANTIDADE"]
+                            })
+                        
+                        s.commit()
+                        st.success(f"✅ Dados gravados com sucesso para {ubs_selecionada}!")
+                except Exception as e:
+                    st.error(f"Erro ao salvar no banco: {e}")
+        else:
+            st.warning("Nenhuma vacina informada. Digite valores maiores que zero.")
+
+# --- ABA 2: RELATÓRIO CONSOLIDADO ---
+with tab2:
+    st.markdown("### 📊 Painel Geral e Download")
+
+    col_btn, _ = st.columns([1, 4])
+    if col_btn.button("🔄 Puxar Dados Mais Recentes"):
+        st.rerun()
+
+    try:
         # Busca em tempo real da tabela
         df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
     except Exception as e:
