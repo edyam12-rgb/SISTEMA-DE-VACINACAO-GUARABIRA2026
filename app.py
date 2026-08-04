@@ -17,6 +17,20 @@ st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 # Abas do sistema
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
+# Listas base de vacinas
+lista_rotina = [
+    "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
+    "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
+    "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
+    "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
+]
+
+lista_covid = [
+    "PFIZER ADULTO", 
+    "PFIZER PED 06 A 4 ANOS", 
+    "PFIZER PED. 05 A 11 ANOS"
+]
+
 # --- ABA 1: LANÇAMENTO ---
 with tab1:
     st.subheader("Painel de Lançamento por Posto de Saúde")
@@ -48,61 +62,62 @@ with tab1:
     
     st.markdown("---")
     
-    # Inicializa os DataFrames no session_state se não existirem
-    if "df_rotina" not in st.session_state:
-        st.session_state.df_rotina = pd.DataFrame({
-            "VACINA": [
-                "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
-                "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
-                "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
-                "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
-            ],
-            "QUANTIDADE": [0]*22
-        })
-
-    if "df_covid" not in st.session_state:
-        st.session_state.df_covid = pd.DataFrame({
-            "VACINA": [
-                "PFIZER ADULTO", 
-                "PFIZER PED 06 A 4 ANOS", 
-                "PFIZER PED. 05 A 11 ANOS"
-            ],
-            "QUANTIDADE": [0, 0, 0]
-        })
-
     # Seleção de Categoria para facilitar o lançamento
     categoria_vacina = st.radio(
         "Selecione o grupo de vacinas:",
         ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"],
         horizontal=True
     )
-    
+
+    # Busca valores já salvos no banco para esta UBS e Turno para preencher ou zerar corretamente
+    try:
+        df_existente = conn.query(
+            "SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t",
+            params={"d": distrito_selecionado, "u": ubs_selecionada, "t": turno_selecionado},
+            ttl=0
+        )
+    except:
+        df_existente = pd.DataFrame()
+
     if categoria_vacina == "💉 Vacinas de Rotina":
-        df_editado = st.data_editor(st.session_state.df_rotina, hide_index=True, use_container_width=True, key="editor_rotina")
+        dic_quantidades = {v: 0 for v in lista_rotina}
+        if not df_existente.empty:
+            for _, row in df_existente.iterrows():
+                if row["vacina"] in dic_quantidades:
+                    dic_quantidades[row["vacina"]] = row["quantidade"]
+        
+        df_tela = pd.DataFrame({"VACINA": lista_rotina, "QUANTIDADE": [dic_quantidades[v] for v in lista_rotina]})
+        df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key="editor_rotina")
     else:
-        df_editado = st.data_editor(st.session_state.df_covid, hide_index=True, use_container_width=True, key="editor_covid")
+        dic_quantidades = {v: 0 for v in lista_covid}
+        if not df_existente.empty:
+            for _, row in df_existente.iterrows():
+                if row["vacina"] in dic_quantidades:
+                    dic_quantidades[row["vacina"]] = row["quantidade"]
+
+        df_tela = pd.DataFrame({"VACINA": lista_covid, "QUANTIDADE": [dic_quantidades[v] for v in lista_covid]})
+        df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key="editor_covid")
 
     if st.button("💾 Salvar Lançamento no Servidor", type="primary"):
         df_salvar = df_editado[df_editado["QUANTIDADE"] > 0].copy()
 
-        if not df_salvar.empty:
-            try:
-                with conn.session as s:
-                    # CORREÇÃO PRINCIPAL: Apaga TODOS os registros desta UBS e Turno 
-                    # antes de inserir, evitando duplicação por cliques múltiplos.
-                    sql_delete = text("""
-                        DELETE FROM registros_vacinacao 
-                        WHERE distrito = :distrito 
-                          AND unidade_saude = :ubs 
-                          AND turno = :turno
-                    """)
-                    s.execute(sql_delete, {
-                        "distrito": distrito_selecionado,
-                        "ubs": ubs_selecionada,
-                        "turno": turno_selecionado
-                    })
+        try:
+            with conn.session as s:
+                # Remove todos os registros anteriores desta UBS e Turno para atualizar com o novo estado da tela
+                sql_delete = text("""
+                    DELETE FROM registros_vacinacao 
+                    WHERE distrito = :distrito 
+                      AND unidade_saude = :ubs 
+                      AND turno = :turno
+                """)
+                s.execute(sql_delete, {
+                    "distrito": distrito_selecionado,
+                    "ubs": ubs_selecionada,
+                    "turno": turno_selecionado
+                })
 
-                    # Insere os valores atuais que estão na tela para esta categoria
+                # Insere apenas os que possuem quantidade > 0 na tela atual
+                if not df_salvar.empty:
                     for _, row in df_salvar.iterrows():
                         sql_insert = text("""
                             INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
@@ -115,13 +130,11 @@ with tab1:
                             "vacina": row["VACINA"],
                             "quantidade": row["QUANTIDADE"]
                         })
-                    
-                    s.commit()
-                    st.success(f"✅ Dados gravados com sucesso para {ubs_selecionada}!")
-            except Exception as e:
-                st.error(f"Erro ao salvar no banco: {e}")
-        else:
-            st.warning("Nenhuma quantidade informada nesta categoria. Digite valores maiores que zero.")
+                
+                s.commit()
+                st.success(f"✅ Lançamento salvo com sucesso para {ubs_selecionada} ({turno_selecionado})!")
+        except Exception as e:
+            st.error(f"Erro ao salvar no banco: {e}")
 
 # --- ABA 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
