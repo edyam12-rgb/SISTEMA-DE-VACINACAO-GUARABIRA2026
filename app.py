@@ -40,7 +40,7 @@ with tab1:
         ubs_por_distrito.get(distrito_selecionado, [])
     )
     
-    # Seleção de Turnos atualizada
+    # Seleção de Turnos
     turno_selecionado = st.selectbox(
         "Selecione o Turno:", 
         ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
@@ -59,28 +59,10 @@ with tab1:
         if "df_rotina" not in st.session_state:
             st.session_state.df_rotina = pd.DataFrame({
                 "VACINA": [
-                    "ACWY",
-                    "ANTIR. HUMANA",
-                    "DENGUE",
-                    "DTP",
-                    "DTPa adulto",
-                    "Dt",
-                    "F. AMARELA",
-                    "HEPAT. A",
-                    "HEPAT. B",
-                    "HPV",
-                    "INFLUENZA",
-                    "MENIN. C",
-                    "PENTA",
-                    "PNEUMO 10",
-                    "PNEUMO 20",
-                    "ROTAVIRUS",
-                    "T. VIRAL",
-                    "TETRA",
-                    "VARICELA",
-                    "VIP",
-                    "VIT. A",
-                    "VSR GRAVIDA"
+                    "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
+                    "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
+                    "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
+                    "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
                 ],
                 "QUANTIDADE": [0]*22
             })
@@ -143,9 +125,11 @@ with tab1:
 with tab2:
     st.markdown("### 📊 Painel Geral e Download")
 
-    col_btn, _ = st.columns([1, 4])
-    if col_btn.button("🔄 Puxar Dados Mais Recentes"):
-        st.rerun()
+    col_btn1, col_btn2 = st.columns([1, 4])
+    
+    with col_btn1:
+        if st.button("🔄 Puxar Dados"):
+            st.rerun()
 
     try:
         df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
@@ -154,6 +138,23 @@ with tab2:
         df_banco = pd.DataFrame()
         
     if not df_banco.empty:
+        # Botão para limpar/zerar o banco inteiro com caixa de confirmação
+        with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
+            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
+            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
+            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
+                if confirmacao:
+                    try:
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM registros_vacinacao"))
+                            s.commit()
+                        st.success("🗑️ Banco de dados limpo com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao limpar banco: {e}")
+                else:
+                    st.error("Marque a caixa de confirmação para poder apagar os dados.")
+
         filtro = st.radio(
             "Selecione o formato do consolidado:", 
             ["Divisão por TURNO e DISTRITO", "Divisão por DISTRITO e POSTO DE SAÚDE (Detalhado)"], 
