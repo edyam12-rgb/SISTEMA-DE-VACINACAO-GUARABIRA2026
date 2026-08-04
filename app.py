@@ -64,36 +64,6 @@ with tab1:
         
         if not df_salvar.empty:
             try:
-                # Transação no banco de dados para segurança
-                with conn.session as s:
-                    for _, row in df_salvar.iterrows():
-                        sql = text("""
-                            INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) 
-                            VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
-                        """)
-                        s.execute(sql, {
-                            "distrito": distrito_selecionado,
-                            "ubs": ubs_selecionada,
-                            "turno": turno_selecionado,
-                            "vacina": row["VACINA"],
-                            "quantidade": row["QUANTIDADE"]
-                        })
-                    s.commit()
-                st.success(f"✅ Dados gravados no banco de dados central com sucesso para {ubs_selecionada}!")
-            except Exception as e:
-                st.error(f"Erro ao salvar no banco: {e}")
-        else:
-            st.warning("Nenhuma vacina informada. Digite valores maiores que 0.")
-
-# --- ABA 2: RELATÓRIO CONSOLIDADO ---
-with tab2:
-    st.markdown("### 📈 Painel Geral e Download")
-    
-    col_btn, _ = st.columns([1, 4])
-    if col_btn.button("🔄 Puxar Dados Mais Recentes"):
-        st.rerun()
-        
-    try:
         # Busca em tempo real da tabela
         df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
     except Exception as e:
