@@ -1,19 +1,23 @@
 import streamlit as st
 import pandas as pd
 import io
+from sqlalchemy import text
 
 # Configuração da Página
 st.set_page_config(page_title="Lançamento - Dia D", page_icon="💉", layout="wide")
 
-# Lista de vacinas mapeada
+# Inicializa conexão oficial com o PostgreSQL via Streamlit
+conn = st.connection("postgresql", type="sql")
+
+# Lista de vacinas 
 VACINAS = [
-    "ACWY", "ANTIR. HUMANA", "DENGUE", "Dt", "DTP", "DTPa adulto",
+    "ACWY", "ANTIR. HUMANA", "COVID BIVALENTE", "DENGUE", "Dt", "DTP", "DTPa adulto",
     "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C",
     "PENTA", "PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS",
-    "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
+    "PNEUMO 10", "ROTAVIRUS", "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
 ]
 
-# Distritos mapeados com as UBSs (Postos) de Guarabira
+# Distritos mapeados
 DISTRITOS_UBS = {
     "DISTRITO 1": ['ALTO', 'B NOVO I', 'B NOVO II', 'CORDEIRO', 'PRIMAVERA'],
     "DISTRITO 2": ['JUA', 'NACOES', 'NORDESTE I', 'NORDESTE II', 'NORDESTE III'],
@@ -21,20 +25,14 @@ DISTRITOS_UBS = {
     "DISTRITO 4": ['CACHOEIRA', 'CONTENDAS', 'MUTIRAO', 'PIRPIRI', 'TANANDUBA']
 }
 
-# Novos 3 Turnos especificados
 TURNOS = [
     "MANHÃ (Até 11h)", 
     "TARDE 1 (Das 11h às 15h)", 
     "TARDE 2 (Das 15h às 16h)"
 ]
 
-# Inicializa o banco de dados temporário na memória
-if 'dados_vacinacao' not in st.session_state:
-    st.session_state['dados_vacinacao'] = pd.DataFrame(columns=["DISTRITO", "UNIDADE_SAUDE", "TURNO", "VACINA", "QUANTIDADE"])
-
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# Criando as abas de navegação
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
 # --- ABA 1: LANÇAMENTO DE DADOS ---
@@ -43,19 +41,13 @@ with tab1:
     
     col1, col2, col3 = st.columns(3)
     distrito_selecionado = col1.selectbox("Selecione o Distrito:", list(DISTRITOS_UBS.keys()))
-    
-    # A lista de UBS muda automaticamente dependendo do distrito
     ubs_selecionada = col2.selectbox("Selecione o Posto de Saúde:", DISTRITOS_UBS[distrito_selecionado])
     turno_selecionado = col3.selectbox("Selecione o Turno:", TURNOS)
     
     st.markdown("---")
     st.write(f"Preencha as vacinas aplicadas em **{ubs_selecionada} ({distrito_selecionado})** no turno **{turno_selecionado}**:")
     
-    # Cria a tabela editável
-    df_entrada = pd.DataFrame({
-        "VACINA": VACINAS,
-        "QUANTIDADE": [0] * len(VACINAS)
-    })
+    df_entrada = pd.DataFrame({"VACINA": VACINAS, "QUANTIDADE": [0] * len(VACINAS)})
     
     df_editado = st.data_editor(
         df_entrada,
@@ -67,22 +59,29 @@ with tab1:
         }
     )
     
-    # Botão para salvar
-    if st.button("💾 Salvar Lançamento", type="primary"):
+    if st.button("💾 Salvar Lançamento no Servidor", type="primary"):
         df_salvar = df_editado[df_editado["QUANTIDADE"] > 0].copy()
         
         if not df_salvar.empty:
-            df_salvar["DISTRITO"] = distrito_selecionado
-            df_salvar["UNIDADE_SAUDE"] = ubs_selecionada
-            df_salvar["TURNO"] = turno_selecionado
-            
-            df_salvar = df_salvar[["DISTRITO", "UNIDADE_SAUDE", "TURNO", "VACINA", "QUANTIDADE"]]
-            
-            st.session_state['dados_vacinacao'] = pd.concat(
-                [st.session_state['dados_vacinacao'], df_salvar], 
-                ignore_index=True
-            )
-            st.success(f"✅ Dados salvos com sucesso para {ubs_selecionada}!")
+            try:
+                # Transação no banco de dados para segurança
+                with conn.session as s:
+                    for _, row in df_salvar.iterrows():
+                        sql = text("""
+                            INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) 
+                            VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
+                        """)
+                        s.execute(sql, {
+                            "distrito": distrito_selecionado,
+                            "ubs": ubs_selecionada,
+                            "turno": turno_selecionado,
+                            "vacina": row["VACINA"],
+                            "quantidade": row["QUANTIDADE"]
+                        })
+                    s.commit()
+                st.success(f"✅ Dados gravados no banco de dados central com sucesso para {ubs_selecionada}!")
+            except Exception as e:
+                st.error(f"Erro ao salvar no banco: {e}")
         else:
             st.warning("Nenhuma vacina informada. Digite valores maiores que 0.")
 
@@ -90,51 +89,33 @@ with tab1:
 with tab2:
     st.markdown("### 📈 Painel Geral e Download")
     
-    df_banco = st.session_state['dados_vacinacao']
-    
-    if not df_banco.empty:
+    col_btn, _ = st.columns([1, 4])
+    if col_btn.button("🔄 Puxar Dados Mais Recentes"):
+        st.rerun()
         
-        # Filtro principal da visualização do Excel
+    try:
+        # Busca em tempo real da tabela
+        df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
+    except Exception as e:
+        st.error("Sem comunicação com o banco de dados. Verifique a chave de conexão.")
+        df_banco = pd.DataFrame()
+        
+    if not df_banco.empty:
         filtro = st.radio(
             "Selecione o formato do consolidado:", 
-            [
-                "Divisão por TURNO e DISTRITO", 
-                "Divisão por DISTRITO e POSTO DE SAÚDE (Detalhado)"
-            ], 
+            ["Divisão por TURNO e DISTRITO", "Divisão por DISTRITO e POSTO DE SAÚDE (Detalhado)"], 
             horizontal=True
         )
         
         if filtro == "Divisão por TURNO e DISTRITO":
-            # Aqui está o que você pediu: Agrupa primeiro pelo TURNO, depois pelo DISTRITO
-            consolidado = pd.pivot_table(
-                df_banco,
-                values='QUANTIDADE',
-                index=['TURNO', 'DISTRITO'],
-                columns=['VACINA'],
-                aggfunc='sum',
-                fill_value=0
-            )
+            consolidado = pd.pivot_table(df_banco, values='quantidade', index=['turno', 'distrito'], columns=['vacina'], aggfunc='sum', fill_value=0)
         else:
-            # Mostra o detalhe completo por Distrito -> Posto
-            consolidado = pd.pivot_table(
-                df_banco,
-                values='QUANTIDADE',
-                index=['DISTRITO', 'UNIDADE_SAUDE'],
-                columns=['VACINA'],
-                aggfunc='sum',
-                fill_value=0
-            )
+            consolidado = pd.pivot_table(df_banco, values='quantidade', index=['distrito', 'unidade_saude'], columns=['vacina'], aggfunc='sum', fill_value=0)
         
-        # Cria a coluna final somando as linhas
         consolidado['TOTAL GERAL'] = consolidado.sum(axis=1)
-        
-        # Exibe a tabela na tela
         st.dataframe(consolidado, use_container_width=True)
-        
-        # Totalizador Absoluto
         st.info(f"**Total Absoluto de Doses Aplicadas:** {int(consolidado['TOTAL GERAL'].sum())}")
         
-        # Botão de Download para o Excel Final
         st.markdown("---")
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -147,12 +128,5 @@ with tab2:
             file_name="Relatorio_Final_Dia_D.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
-        # Botão de Segurança (Limpar Tudo)
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        if st.button("⚠️ Reiniciar Sistema (Apagar Todos os Dados)", type="secondary"):
-            st.session_state['dados_vacinacao'] = pd.DataFrame(columns=["DISTRITO", "UNIDADE_SAUDE", "TURNO", "VACINA", "QUANTIDADE"])
-            st.rerun()
-            
     else:
-        st.info("👈 Não há dados no sistema. Volte para a aba de Lançamento e insira as informações.")
+        st.info("👈 Nenhum dado recebido do banco ainda.")
