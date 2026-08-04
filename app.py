@@ -21,15 +21,21 @@ tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolida
 with tab1:
     st.subheader("Painel de Lançamento por Posto de Saúde")
     
-    # Seleções de Distrito, UBS e Turno (ajuste conforme as variáveis do seu código original)
+    # Seleções recuperadas conforme estrutura anterior
     distrito_selecionado = st.selectbox("Selecione o Distrito:", ["Distrito 1", "Distrito 2", "Distrito 3", "Distrito 4"])
-    ubs_selecionada = st.text_input("Nome da Unidade de Saúde (UBS):")
-    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã", "Tarde", "Noite"])
+    
+    # Caixa seletora de Unidades de Saúde (UBS)
+    ubs_selecionada = st.selectbox(
+        "Selecione a Unidade de Saúde (UBS):", 
+        ["UBS Centro", "UBS Bairro Novo", "UBS Primavera", "UBS Cordeiro", "UBS Nações"]
+    )
+    
+    # Seleção de Turnos
+    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã", "Tarde", "Integral"])
     
     st.markdown("---")
     st.markdown("### Digite as quantidades aplicadas por vacina:")
     
-    # Exemplo de tabela editável de vacinas (substitua pelo seu dataframe original de vacinas se necessário)
     if "df_vazios" not in st.session_state:
         st.session_state.df_vazios = pd.DataFrame({
             "VACINA": ["BCG", "Hepatite B", "Poliomielite", "Pentavalente", "Tríplice Viral", "Febre Amarela"],
@@ -42,44 +48,41 @@ with tab1:
         df_salvar = df_editado[df_editado["QUANTIDADE"] > 0].copy()
 
         if not df_salvar.empty:
-            if not ubs_selecionada.strip():
-                st.warning("Por favor, preencha o nome da Unidade de Saúde (UBS).")
-            else:
-                try:
-                    # Transação no banco de dados para segurança
-                    with conn.session as s:
-                        # 1. Limpa os registros anteriores desta UBS e Turno específicos
-                        # para evitar que os valores se multipliquem ao salvar novamente.
-                        sql_delete = text("""
-                            DELETE FROM registros_vacinacao 
-                            WHERE distrito = :distrito 
-                              AND unidade_saude = :ubs 
-                              AND turno = :turno
+            try:
+                # Transação no banco de dados para segurança
+                with conn.session as s:
+                    # 1. Limpa os registros anteriores desta UBS e Turno específicos
+                    # para evitar que os valores se multipliquem ao salvar novamente.
+                    sql_delete = text("""
+                        DELETE FROM registros_vacinacao 
+                        WHERE distrito = :distrito 
+                          AND unidade_saude = :ubs 
+                          AND turno = :turno
+                    """)
+                    s.execute(sql_delete, {
+                        "distrito": distrito_selecionado,
+                        "ubs": ubs_selecionada,
+                        "turno": turno_selecionado
+                    })
+
+                    # 2. Insere os valores atuais exatos que estão na tela
+                    for _, row in df_salvar.iterrows():
+                        sql_insert = text("""
+                            INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
+                            VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
                         """)
-                        s.execute(sql_delete, {
+                        s.execute(sql_insert, {
                             "distrito": distrito_selecionado,
                             "ubs": ubs_selecionada,
-                            "turno": turno_selecionado
+                            "turno": turno_selecionado,
+                            "vacina": row["VACINA"],
+                            "quantidade": row["QUANTIDADE"]
                         })
-
-                        # 2. Insere os valores atuais exatos que estão na tela
-                        for _, row in df_salvar.iterrows():
-                            sql_insert = text("""
-                                INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade)
-                                VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
-                            """)
-                            s.execute(sql_insert, {
-                                "distrito": distrito_selecionado,
-                                "ubs": ubs_selecionada,
-                                "turno": turno_selecionado,
-                                "vacina": row["VACINA"],
-                                "quantidade": row["QUANTIDADE"]
-                            })
-                        
-                        s.commit()
-                        st.success(f"✅ Dados gravados com sucesso para {ubs_selecionada}!")
-                except Exception as e:
-                    st.error(f"Erro ao salvar no banco: {e}")
+                    
+                    s.commit()
+                    st.success(f"✅ Dados gravados com sucesso para {ubs_selecionada}!")
+            except Exception as e:
+                st.error(f"Erro ao salvar no banco: {e}")
         else:
             st.warning("Nenhuma vacina informada. Digite valores maiores que zero.")
 
