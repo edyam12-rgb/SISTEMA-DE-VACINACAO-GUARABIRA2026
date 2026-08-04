@@ -84,9 +84,9 @@ with tab1:
         if "df_covid" not in st.session_state:
             st.session_state.df_covid = pd.DataFrame({
                 "VACINA": [
-                    "COVID-19 (Outras / Ajustadas)", 
-                    "COVID-19 Bivalente", 
-                    "COVID-19 Monovalente Pediátrica"
+                    "PFIZER ADULTO", 
+                    "PFIZER PED 06 A 4 ANOS", 
+                    "PFIZER PED. 05 A 11 ANOS"
                 ],
                 "QUANTIDADE": [0, 0, 0]
             })
