@@ -158,12 +158,13 @@ with tab2:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True)
             nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
+            lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
             # Painel Turnos
             for t in ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
-                    cons = df_t.groupby(nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                    cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
                     cons['TOTAL'] = cons.sum(axis=1)
                     st.markdown(f"#### ⏰ {t}"); st.dataframe(cons, use_container_width=True)
             
