@@ -157,7 +157,7 @@ with tab1:
     if "sel_cat_ativo" not in st.session_state:
         st.session_state.sel_cat_ativo = "💉 Vacinas de Rotina"
 
-    # Formulário para travar a mudança de turno/UBS até confirmar
+    # Formulário para seletores
     with st.form("form_seletor_turno"):
         col1, col2, col3 = st.columns(3)
         if is_admin:
@@ -199,27 +199,36 @@ with tab1:
     editor_key = f"editor_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}_{st.session_state.sel_cat_ativo}"
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
 
-    # Verificação de alteração pendente (dados digitados na tela vs banco)
+    # Verificação de alteração pendente
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
     dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
-    tem_pendencia = (dict_tela != dict_banco)
+    
+    tem_pendencia = False
+    for vac, qtd_tela in dict_tela.items():
+        qtd_banco = dict_banco.get(vac, 0)
+        q_t = float(qtd_tela) if pd.notna(qtd_tela) else 0.0
+        q_b = float(qtd_banco) if pd.notna(qtd_banco) else 0.0
+        if q_t != q_b:
+            tem_pendencia = True
+            break
 
-    # Se o usuário clicou no botão de trocar no formulário mas deixou dados sem salvar
+    # Detecta tentativa de mudança nos seletores através do botão do formulário
     tentativa_troca_formulario = (f_distrito != st.session_state.sel_distrito_ativo) or (f_ubs != st.session_state.sel_ubs_ativo) or (f_turno != st.session_state.sel_turno_ativo) or (f_cat != st.session_state.sel_cat_ativo)
 
+    # O aviso de alterações pendentes aparece na tela, mas o BLOQUEIO só acontece se tentar trocar de turno/UBS
     if tem_pendencia:
-        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**! Clique em **'💾 Salvar Lançamento'** abaixo antes de trocar de turno ou unidade.")
+        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**!")
         if btn_trocar and tentativa_troca_formulario:
-            st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você não pode mudar de turno ou unidade com dados pendentes! Salve o lançamento atual primeiro.")
+            st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você tentou mudar de turno ou unidade sem salvar as alterações! Clique em '💾 Salvar Lançamento' primeiro.")
             st.stop()
-    else:
-        # Se não há pendências e o usuário pediu para trocar, atualiza o estado ativo
-        if btn_trocar and tentativa_troca_formulario:
-            st.session_state.sel_distrito_ativo = f_distrito
-            st.session_state.sel_ubs_ativo = f_ubs
-            st.session_state.sel_turno_ativo = f_turno
-            st.session_state.sel_cat_ativo = f_cat
-            st.rerun()
+    
+    # Se não há pendências e o usuário clicou para trocar, atualiza o estado ativo normalmente
+    if not tem_pendencia and btn_trocar and tentativa_troca_formulario:
+        st.session_state.sel_distrito_ativo = f_distrito
+        st.session_state.sel_ubs_ativo = f_ubs
+        st.session_state.sel_turno_ativo = f_turno
+        st.session_state.sel_cat_ativo = f_cat
+        st.rerun()
 
     if st.button("💾 Salvar Lançamento", type="primary"):
         try:
