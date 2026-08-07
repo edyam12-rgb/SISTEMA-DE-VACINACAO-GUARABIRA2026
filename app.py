@@ -17,7 +17,7 @@ st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 # Abas do sistema
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
-# Listas base de vacinas oficiais incluindo a T. Viral 2ª Dose
+# Listas base de vacinas oficiais
 lista_rotina = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
     "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
@@ -166,7 +166,6 @@ with tab2:
                 else:
                     st.error("Marque a caixa de confirmação para poder apagar os dados.")
 
-        # Classificação detalhada para o relatório por turno (Rotina e Covid)
         def classificar_por_turno(nome):
             nome = str(nome).upper()
             if "COVID" in nome or "PFIZER" in nome:
@@ -175,7 +174,7 @@ with tab2:
 
         df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(classificar_por_turno)
         
-        # 1. Consolidado por Turno (Mostrando Rotina e Covid conforme solicitado)
+        # 1. Consolidado por Turno
         consolidado_turno = df_banco.groupby(['turno', 'distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
         for col in ['ROTINA', 'COVID']:
             if col not in consolidado_turno.columns:
@@ -187,41 +186,34 @@ with tab2:
             st.markdown(f"#### 🕒 Turno: {t}")
             st.dataframe(consolidado_turno.loc[t], use_container_width=True)
         
-        # 2. TOTAL GERAL ACUMULADO (Descontando Influenza, T. Viral 1ª, T. Viral 2ª e F. Amarela do Total de Rotina)
+        # 2. TOTAL GERAL ACUMULADO COM DESCONTOS
         st.markdown("---")
         st.markdown("#### 🏁 TOTAL GERAL (Acumulado com Descontos Oficiais)")
 
-        # Cria colunas específicas detalhadas para o cálculo do total geral
         df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
-        
-        # Pivot completo por vacina para isolar os descontos necessários
         tabela_completa = df_banco.pivot_table(index='distrito', columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
         
-        # Garante a existência das colunas necessárias
-        for v in ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA']:
+        # Lista atualizada de vacinas que devem ser descontadas da rotina
+        lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
+        
+        for v in lista_descontos:
             if v not in tabela_completa.columns:
                 tabela_completa[v] = 0
 
-        # Soma total geral de rotina por distrito
         rotina_total = df_banco[df_banco['GRUPO_TURNO'] == 'ROTINA'].groupby('distrito')['quantidade'].sum()
         covid_total = df_banco[df_banco['GRUPO_TURNO'] == 'COVID'].groupby('distrito')['quantidade'].sum()
+        
+        total_descontos = tabela_completa[lista_descontos].sum(axis=1)
 
         df_geral = pd.DataFrame(index=tabela_completa.index)
-        df_geral['ROTINA'] = rotina_total
-        df_geral['COVID'] = covid_total
-        df_geral['INFLUENZA'] = tabela_completa['INFLUENZA']
-        df_geral['T VIRAL (1ª D)'] = tabela_completa['T. VIRAL']
-        df_geral['T VIRAL (2ª D)'] = tabela_completa['T. VIRAL 2ª DOSE']
-        df_geral['F. AMARELA'] = tabela_completa['F. AMARELA']
+        df_geral['ROTINA'] = rotina_total.fillna(0)
+        df_geral['COVID'] = covid_total.fillna(0)
         
-        # Cálculo do Total Geral descontando os itens solicitados do total de rotina + covid
-        df_geral['TOTAL GERAL'] = (
-            df_geral['ROTINA'].fillna(0) + df_geral['COVID'].fillna(0) 
-            - df_geral['INFLUENZA'] - df_geral['T VIRAL (1ª D)'] 
-            - df_geral['T VIRAL (2ª D)'] - df_geral['F. AMARELA']
-        )
-        
-        # Preenche vazios com 0
+        for v in lista_descontos:
+            df_geral[v] = tabela_completa[v]
+            
+        # Fórmula: (Rotina - Descontos) + Covid
+        df_geral['TOTAL GERAL'] = (df_geral['ROTINA'] - total_descontos) + df_geral['COVID']
         df_geral = df_geral.fillna(0)
 
         st.dataframe(df_geral, use_container_width=True)
