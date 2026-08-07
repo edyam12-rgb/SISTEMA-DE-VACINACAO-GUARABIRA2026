@@ -181,22 +181,36 @@ with tab1:
         
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
     
-    if st.button("💾 Salvar Lançamento"):
+    # --- VERIFICAÇÃO DE DADOS NÃO SALVOS (AVISO DE ESQUECIMENTO) ---
+    dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
+    dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
+    
+    tem_alteracao_nao_salva = False
+    for vac, qtd in dict_tela.items():
+        if qtd != dict_banco.get(vac, 0):
+            tem_alteracao_nao_salva = True
+            break
+            
+    if tem_alteracao_nao_salva:
+        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**! Lembre-se de clicar no botão **'💾 Salvar Lançamento'** abaixo antes de mudar de turno ou unidade.")
+
+    if st.button("💾 Salvar Lançamento", type="primary"):
         try:
             with conn.session as s:
                 s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado})
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
                     s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
                 s.commit()
-                st.success("✅ Salvo com sucesso!")
-        except Exception as e: st.error(f"Erro: {e}")
+                st.success("✅ Lançamento salvo com sucesso no servidor!")
+                st.rerun()
+        except Exception as e: st.error(f"Erro ao salvar: {e}")
 
 with tab2:
     if is_admin:
         with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
             st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
             confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
-            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
+            if st.button("🗑️ Apagar Todos os Dados do Servidor"):
                 if confirmacao:
                     try:
                         with conn.session as s:
@@ -246,7 +260,7 @@ with tab2:
             st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else: st.warning("🔒 Acesso restrito apenas para administradores.")
 
-# --- ABA 3: GERENCIAR USUÁRIOS (NOVO) ---
+# --- ABA 3: GERENCIAR USUÁRIOS ---
 with tab3:
     if is_admin:
         st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
@@ -263,13 +277,11 @@ with tab3:
             
             usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist())
             
-            # Pega dados do usuário selecionado
             user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
             
             with st.form("form_edicao_usuario"):
                 novo_perfil_edit = st.selectbox("Alterar Perfil", ["Técnico", "Administrador"], index=0 if user_info["perfil"] == "Técnico" else 1)
                 
-                # Se for técnico, permite alterar o distrito e a UBS
                 edit_distrito = user_info["distrito"] if user_info["distrito"] else "Geral"
                 edit_ubs = user_info["ubs"] if user_info["ubs"] else "Geral"
                 
