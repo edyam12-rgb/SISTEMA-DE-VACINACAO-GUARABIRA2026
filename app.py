@@ -211,9 +211,6 @@ with tab1:
         
         btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia)
 
-    if tem_pendencia and btn_trocar:
-        st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você não pode mudar de turno ou unidade com dados pendentes!")
-
     if not tem_pendencia and btn_trocar:
         st.session_state.sel_distrito_ativo = f_distrito
         st.session_state.sel_ubs_ativo = f_ubs
