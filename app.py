@@ -44,34 +44,51 @@ with tab1:
     st.markdown("---")
     categoria_vacina = st.radio("Selecione o grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True)
     
+    # Busca valores salvos no banco para esta UBS e Turno específicos
     try:
-        df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": distrito_selecionado, "u": ubs_selecionada, "t": turno_selecionado}, ttl=0)
-    except: df_existente = pd.DataFrame()
-    
+        df_existente = conn.query(
+            "SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", 
+            params={"d": distrito_selecionado, "u": ubs_selecionada, "t": turno_selecionado}, 
+            ttl=0
+        )
+    except: 
+        df_existente = pd.DataFrame()
+
+    # Criação do dicionário de quantidades com base no banco (ou zero se não houver registros)
     if categoria_vacina == "💉 Vacinas de Rotina":
         dic = {v: 0 for v in lista_rotina}
         if not df_existente.empty: 
             for _, r in df_existente.iterrows(): 
                 if r["vacina"] in dic: dic[r["vacina"]] = r["quantidade"]
         df_tela = pd.DataFrame({"VACINA": lista_rotina, "QUANTIDADE": [dic[v] for v in lista_rotina]})
+        # Chave dinâmica garante que o editor zere ou recarregue ao trocar de posto/turno
+        editor_key = f"rotina_{distrito_selecionado}_{ubs_selecionada}_{turno_selecionado}"
     else:
         dic = {v: 0 for v in lista_covid}
         if not df_existente.empty: 
             for _, r in df_existente.iterrows(): 
                 if r["vacina"] in dic: dic[r["vacina"]] = r["quantidade"]
         df_tela = pd.DataFrame({"VACINA": lista_covid, "QUANTIDADE": [dic[v] for v in lista_covid]})
+        editor_key = f"covid_{distrito_selecionado}_{ubs_selecionada}_{turno_selecionado}"
         
-    df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True)
+    df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
     
     if st.button("💾 Salvar Lançamento no Servidor", type="primary"):
         try:
             with conn.session as s:
-                s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado})
+                s.execute(
+                    text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), 
+                    {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado}
+                )
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
-                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
+                    s.execute(
+                        text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), 
+                        {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]}
+                    )
                 s.commit()
                 st.success(f"✅ Lançamento salvo para {ubs_selecionada} ({turno_selecionado})!")
-        except Exception as e: st.error(f"Erro ao salvar: {e}")
+        except Exception as e: 
+            st.error(f"Erro ao salvar: {e}")
 
 # --- ABA 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
@@ -82,7 +99,6 @@ with tab2:
     except: df_banco = pd.DataFrame()
 
     if not df_banco.empty:
-        # Botão de Limpeza Administrativa
         with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
             st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
             confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
@@ -99,10 +115,9 @@ with tab2:
                 else:
                     st.error("Marque a caixa de confirmação para poder apagar os dados.")
 
-        # Classificação para o painel por turno
         df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
         
-        # 1. Painel Consolidado por Turno (Rotina e COVID)
+        # 1. Painel Consolidado por Turno
         st.markdown("---")
         st.markdown("### 🕒 Consolidado por Turno")
         consolidado_turno = df_banco.groupby(['turno', 'distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
@@ -135,22 +150,19 @@ with tab2:
             
         df_geral['COVID'] = df_banco[df_banco['vacina'].isin(lista_covid)].groupby('distrito')['quantidade'].sum().reindex(df_geral.index).fillna(0)
         
-        # Total Geral = Rotina Ajustada + Descontos + Covid
         df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
         
-        # Linha de Totais da Tabela Geral
         linha_total = df_geral.sum(numeric_only=True)
         linha_total.name = 'TOTAL FINAL'
         df_geral_com_soma = pd.concat([df_geral, linha_total.to_frame().T])
         
         st.dataframe(df_geral_com_soma, use_container_width=True)
 
-        # Botão de Exportação Excel
         st.markdown("---")
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             consolidado_turno.to_excel(writer, sheet_name='CONSOLIDADO_TURNO')
-            df_geral_com_soma.to_excel(writer, sheet_name='TOTAL_GERAL')
+            df_geral_com_soma.to_excel(writer, sheet_name='TOTAL_GENERAL')
             df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
         
         st.download_button(
