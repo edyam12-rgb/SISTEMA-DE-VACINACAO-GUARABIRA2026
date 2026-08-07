@@ -13,7 +13,7 @@ try:
 except Exception as e:
     st.error("Erro ao configurar a conexão com o banco de dados.")
 
-# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS SE NÃO EXISTIR ---
+# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS E O ADMIN PADRÃO ---
 def inicializar_tabela_usuarios():
     try:
         with conn.session as s:
@@ -25,9 +25,10 @@ def inicializar_tabela_usuarios():
                     perfil VARCHAR(20) NOT NULL
                 )
             """))
-            # Cria um usuário Administrador padrão (admin / admin123) se a tabela estiver vazia
+            # Verifica se já existe algum usuário cadastrado
             res = s.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()
             if res[0] == 0:
+                # Cria o Administrador padrão (admin / admin123)
                 senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
                 s.execute(
                     text("INSERT INTO usuarios (username, senha, perfil) VALUES (:u, :p, :pf)"),
@@ -48,6 +49,7 @@ if "logado" not in st.session_state:
 st.sidebar.title("🔐 Acesso ao Sistema")
 
 if not st.session_state.logado:
+    st.sidebar.info("💡 **Primeiro Acesso Admin:**\nUsuário: `admin`\nSenha: `admin123`")
     st.sidebar.subheader("Faça seu Login")
     login_user = st.sidebar.text_input("Usuário", key="login_user")
     login_senha = st.sidebar.text_input("Senha", type="password", key="login_senha")
