@@ -17,7 +17,7 @@ st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 # Abas do sistema
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
-# Listas base de vacinas
+# Listas base de vacinas oficiais extraídas da planilha
 lista_rotina = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
     "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
@@ -54,7 +54,7 @@ with tab1:
         ubs_por_distrito.get(distrito_selecionado, [])
     )
     
-    # Seleção de Turnos
+    # Seleção de Turnos atualizada
     turno_selecionado = st.selectbox(
         "Selecione o Turno:", 
         ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
@@ -103,7 +103,7 @@ with tab1:
 
         try:
             with conn.session as s:
-                # Remove todos os registros anteriores desta UBS e Turno para atualizar com o novo estado da tela
+                # Remove registros anteriores desta UBS e Turno para atualizar com o novo estado da tela (evitando duplicar)
                 sql_delete = text("""
                     DELETE FROM registros_vacinacao 
                     WHERE distrito = :distrito 
@@ -138,12 +138,11 @@ with tab1:
 
 # --- ABA 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
-    st.markdown("### 📊 Painel Geral e Download")
+    st.markdown("### 📊 Relatório Consolidado (Formato Oficial)")
 
     col_btn1, _ = st.columns([1, 4])
-    
     with col_btn1:
-        if st.button("🔄 Puxar Dados"):
+        if st.button("🔄 Atualizar Relatório"):
             st.rerun()
 
     try:
@@ -170,21 +169,40 @@ with tab2:
                 else:
                     st.error("Marque a caixa de confirmação para poder apagar os dados.")
 
-        filtro = st.radio(
-            "Selecione o formato do consolidado:", 
-            ["Divisão por TURNO e DISTRITO", "Divisão por DISTRITO e POSTO DE SAÚDE (Detalhado)"], 
-            horizontal=True
-        )
+        # Função para agrupar categorias conforme a planilha oficial
+        def categorizar_vacina(nome):
+            nome = str(nome).upper()
+            if "COVID" in nome or "PFIZER" in nome: return "COVID"
+            if "INFLUENZA" in nome: return "INFLUENZA"
+            if "T. VIRAL" in nome or "TETRA" in nome: return "T VIRAL"
+            if "F. AMARELA" in nome: return "F. AMARELA"
+            return "ROTINA"
+
+        df_banco['CATEGORIA'] = df_banco['vacina'].apply(categorizar_vacina)
         
-        if filtro == "Divisão por TURNO e DISTRITO":
-            consolidado = pd.pivot_table(df_banco, values='quantidade', index=['turno', 'distrito'], columns=['vacina'], aggfunc='sum', fill_value=0)
-        else:
-            consolidado = pd.pivot_table(df_banco, values='quantidade', index=['distrito', 'unidade_saude'], columns=['vacina'], aggfunc='sum', fill_value=0)
+        # Agrupamento para o formato da planilha
+        consolidado = df_banco.groupby(['turno', 'distrito', 'CATEGORIA'])['quantidade'].sum().unstack(fill_value=0)
         
-        consolidado['TOTAL GERAL'] = consolidado.sum(axis=1)
-        st.dataframe(consolidado, use_container_width=True)
-        st.info(f"**Total Absoluto de Doses Aplicadas:** {int(consolidado['TOTAL GERAL'].sum())}")
+        # Garante colunas essenciais padrão
+        for col in ['ROTINA', 'COVID', 'INFLUENZA', 'T VIRAL', 'F. AMARELA']:
+            if col not in consolidado.columns:
+                consolidado[col] = 0
+                
+        consolidado['TOTAL'] = consolidado.sum(axis=1)
+
+        # Exibição por blocos de Turno
+        turnos = df_banco['turno'].unique()
+        for t in turnos:
+            st.markdown(f"#### 🕒 Turno: {t}")
+            tabela_turno = consolidado.loc[t]
+            st.dataframe(tabela_turno, use_container_width=True)
         
+        # TOTAL GERAL
+        st.markdown("---")
+        st.markdown("#### 🏁 TOTAL GERAL (Acumulado)")
+        total_geral = consolidado.groupby('distrito').sum()
+        st.dataframe(total_geral, use_container_width=True)
+
         st.markdown("---")
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
