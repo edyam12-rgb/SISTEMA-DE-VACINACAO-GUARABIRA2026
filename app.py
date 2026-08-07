@@ -147,40 +147,43 @@ if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 R
 else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
-    # Inicializa estados de controle de navegação e bloqueio
-    if "w_distrito" not in st.session_state:
-        st.session_state.w_distrito = list(ubs_por_distrito.keys())[0] if is_admin else st.session_state.distrito_user
-    if "w_ubs" not in st.session_state:
-        st.session_state.w_ubs = ubs_por_distrito.get(st.session_state.w_distrito, [""])[0] if is_admin else st.session_state.ubs_user
-    if "w_turno" not in st.session_state:
-        st.session_state.w_turno = "Manhã (até as 11h)"
-    if "w_cat" not in st.session_state:
-        st.session_state.w_cat = "💉 Vacinas de Rotina"
+    # Inicializa estados de navegação
+    if "sel_distrito_ativo" not in st.session_state:
+        st.session_state.sel_distrito_ativo = list(ubs_por_distrito.keys())[0] if is_admin else st.session_state.distrito_user
+    if "sel_ubs_ativo" not in st.session_state:
+        st.session_state.sel_ubs_ativo = ubs_por_distrito.get(st.session_state.sel_distrito_ativo, [""])[0] if is_admin else st.session_state.ubs_user
+    if "sel_turno_ativo" not in st.session_state:
+        st.session_state.sel_turno_ativo = "Manhã (até as 11h)"
+    if "sel_cat_ativo" not in st.session_state:
+        st.session_state.sel_cat_ativo = "💉 Vacinas de Rotina"
 
-    # Renderiza os seletores usando o estado ativo atual
-    col1, col2, col3 = st.columns(3)
-    if is_admin:
-        sel_distrito = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(st.session_state.w_distrito) if st.session_state.w_distrito in ubs_por_distrito else 0)
-        lista_ubs_disp = ubs_por_distrito.get(sel_distrito, [])
-        idx_ubs = lista_ubs_disp.index(st.session_state.w_ubs) if st.session_state.w_ubs in lista_ubs_disp else 0
-        sel_ubs = col2.selectbox("Selecione a UBS:", lista_ubs_disp, index=idx_ubs)
-    else:
-        sel_distrito = st.session_state.distrito_user
-        sel_ubs = st.session_state.ubs_user
-        col1.write(f"**Distrito:** {sel_distrito}")
-        col2.write(f"**UBS:** {sel_ubs}")
+    # Formulário para travar a mudança de turno/UBS até confirmar
+    with st.form("form_seletor_turno"):
+        col1, col2, col3 = st.columns(3)
+        if is_admin:
+            f_distrito = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(st.session_state.sel_distrito_ativo) if st.session_state.sel_distrito_ativo in ubs_por_distrito else 0)
+            lista_ubs_disp = ubs_por_distrito.get(f_distrito, [])
+            idx_ubs = lista_ubs_disp.index(st.session_state.sel_ubs_ativo) if st.session_state.sel_ubs_ativo in lista_ubs_disp else 0
+            f_ubs = col2.selectbox("Selecione a UBS:", lista_ubs_disp, index=idx_ubs)
+        else:
+            f_distrito = st.session_state.distrito_user
+            f_ubs = st.session_state.ubs_user
+            col1.write(f"**Distrito:** {f_distrito}")
+            col2.write(f"**UBS:** {f_ubs}")
 
-    lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
-    sel_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.w_turno))
-    
-    sel_cat = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, index=0 if st.session_state.w_cat == "💉 Vacinas de Rotina" else 1)
+        lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+        f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo))
+        
+        f_cat = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, index=0 if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina" else 1)
+        
+        btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade")
 
-    # Busca dados do banco para o contexto ATIVO real
+    # Busca dados atuais do banco para o turno ATIVO atual
     try:
-        df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.w_distrito, "u": st.session_state.w_ubs, "t": st.session_state.w_turno}, ttl=0)
+        df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.sel_distrito_ativo, "u": st.session_state.sel_ubs_ativo, "t": st.session_state.sel_turno_ativo}, ttl=0)
     except: df_existente = pd.DataFrame()
 
-    if st.session_state.w_cat == "💉 Vacinas de Rotina":
+    if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina":
         dic_val = {v: 0 for v in lista_rotina}
         if not df_existente.empty: 
             for _, r in df_existente.iterrows(): 
@@ -193,36 +196,37 @@ with tab1:
                 if r["vacina"] in dic_val: dic_val[r["vacina"]] = r["quantidade"]
         df_tela = pd.DataFrame({"VACINA": lista_covid, "QUANTIDADE": [dic_val[v] for v in lista_covid]})
 
-    editor_key = f"editor_{st.session_state.w_distrito}_{st.session_state.w_ubs}_{st.session_state.w_turno}_{st.session_state.w_cat}"
+    editor_key = f"editor_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}_{st.session_state.sel_cat_ativo}"
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
 
-    # Verifica se há alteração pendente na tabela editada
+    # Verificação de alteração pendente (dados digitados na tela vs banco)
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
     dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
     tem_pendencia = (dict_tela != dict_banco)
 
-    # Detecta tentativa de mudança nos seletores
-    tentativa_troca = (sel_distrito != st.session_state.w_distrito) or (sel_ubs != st.session_state.w_ubs) or (sel_turno != st.session_state.w_turno) or (sel_cat != st.session_state.w_cat)
+    # Se o usuário clicou no botão de trocar no formulário mas deixou dados sem salvar
+    tentativa_troca_formulario = (f_distrito != st.session_state.sel_distrito_ativo) or (f_ubs != st.session_state.sel_ubs_ativo) or (f_turno != st.session_state.sel_turno_ativo) or (f_cat != st.session_state.sel_cat_ativo)
 
     if tem_pendencia:
-        st.warning("⚠️ **ATENÇÃO:** Você possui alterações não salvas neste turno/unidade! Clique em **'💾 Salvar Lançamento'** antes de tentar mudar de turno, UBS ou grupo.")
-        if tentativa_troca:
-            st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Não é permitido mudar de turno ou unidade com alterações pendentes! Salve os dados atuais primeiro para prosseguir.")
+        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**! Clique em **'💾 Salvar Lançamento'** abaixo antes de trocar de turno ou unidade.")
+        if btn_trocar and tentativa_troca_formulario:
+            st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você não pode mudar de turno ou unidade com dados pendentes! Salve o lançamento atual primeiro.")
             st.stop()
-
-    if tentativa_troca and not tem_pendencia:
-        st.session_state.w_distrito = sel_distrito
-        st.session_state.w_ubs = sel_ubs
-        st.session_state.w_turno = sel_turno
-        st.session_state.w_cat = sel_cat
-        st.rerun()
+    else:
+        # Se não há pendências e o usuário pediu para trocar, atualiza o estado ativo
+        if btn_trocar and tentativa_troca_formulario:
+            st.session_state.sel_distrito_ativo = f_distrito
+            st.session_state.sel_ubs_ativo = f_ubs
+            st.session_state.sel_turno_ativo = f_turno
+            st.session_state.sel_cat_ativo = f_cat
+            st.rerun()
 
     if st.button("💾 Salvar Lançamento", type="primary"):
         try:
             with conn.session as s:
-                s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": st.session_state.w_distrito, "ubs": st.session_state.w_ubs, "turno": st.session_state.w_turno})
+                s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo})
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
-                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": st.session_state.w_distrito, "ubs": st.session_state.w_ubs, "turno": st.session_state.w_turno, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
+                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
                 s.commit()
                 st.success("✅ Salvo com sucesso!")
                 st.rerun()
