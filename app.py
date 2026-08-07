@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 import io
+import hashlib
 
 # Configuração da página
 st.set_page_config(page_title="Sistema de Lançamento de Vacinas - Dia D", layout="wide")
@@ -12,15 +13,100 @@ try:
 except Exception as e:
     st.error("Erro ao configurar a conexão com o banco de dados.")
 
-# --- SISTEMA DE LOGIN E PERFIS NA BARRA LATERAL ---
-st.sidebar.title("🔐 Controle de Acesso")
-perfil_selecionado = st.sidebar.selectbox(
-    "Selecione o seu perfil:",
-    ["Técnico (Apenas Lançamento)", "Administrador (Sistema Completo)"]
-)
+# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS SE NÃO EXISTIR ---
+def inicializar_tabela_usuarios():
+    try:
+        with conn.session as s:
+            s.execute(text("""
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    senha VARCHAR(255) NOT NULL,
+                    perfil VARCHAR(20) NOT NULL
+                )
+            """))
+            # Cria um usuário Administrador padrão (admin / admin123) se a tabela estiver vazia
+            res = s.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()
+            if res[0] == 0:
+                senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                s.execute(
+                    text("INSERT INTO usuarios (username, senha, perfil) VALUES (:u, :p, :pf)"),
+                    {"u": "admin", "p": senha_hash, "pf": "Administrador"}
+                )
+            s.commit()
+    except Exception as e:
+        pass
 
-# Identifica se é administrador
-is_admin = (perfil_selecionado == "Administrador (Sistema Completo)")
+inicializar_tabela_usuarios()
+
+# --- CONTROLE DE SESSÃO E LOGIN ---
+if "logado" not in st.session_state:
+    st.session_state.logado = False
+    st.session_state.username = ""
+    st.session_state.perfil = ""
+
+st.sidebar.title("🔐 Acesso ao Sistema")
+
+if not st.session_state.logado:
+    st.sidebar.subheader("Faça seu Login")
+    login_user = st.sidebar.text_input("Usuário", key="login_user")
+    login_senha = st.sidebar.text_input("Senha", type="password", key="login_senha")
+    
+    if st.sidebar.button("Entrar", type="primary"):
+        if login_user and login_senha:
+            senha_hash = hashlib.sha256(login_senha.encode()).hexdigest()
+            try:
+                df_user = conn.query(
+                    "SELECT * FROM usuarios WHERE username = :u AND senha = :s",
+                    params={"u": login_user, "s": senha_hash},
+                    ttl=0
+                )
+                if not df_user.empty:
+                    st.session_state.logado = True
+                    st.session_state.username = login_user
+                    st.session_state.perfil = df_user.iloc[0]["perfil"]
+                    st.rerun()
+                else:
+                    st.sidebar.error("Usuário ou senha incorretos!")
+            except Exception as e:
+                st.sidebar.error(f"Erro ao autenticar: {e}")
+        else:
+            st.sidebar.warning("Preencha todos os campos.")
+    st.stop()
+
+# Se já estiver logado, exibe informações na barra lateral e opção de sair
+st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{st.session_state.perfil}**")
+if st.sidebar.button("🚪 Sair / Desconectar"):
+    st.session_state.logado = False
+    st.session_state.username = ""
+    st.session_state.perfil = ""
+    st.rerun()
+
+is_admin = (st.session_state.perfil == "Administrador")
+
+# --- PAINEL DE CADASTRO DE PERFIS (EXCLUSIVO PARA ADMINS) ---
+if is_admin:
+    with st.sidebar.expander("👤 Gerenciar / Cadastrar Usuários"):
+        st.write("Cadastrar novo usuário ou técnico:")
+        novo_user = st.text_input("Novo Usuário", key="cad_user")
+        nova_senha = st.text_input("Senha", type="password", key="cad_senha")
+        novo_perfil = st.selectbox("Indicar Perfil", ["Técnico", "Administrador"], key="cad_perfil")
+        
+        if st.button("💾 Cadastrar Usuário"):
+            if novo_user and nova_senha:
+                try:
+                    senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
+                    with conn.session as s:
+                        s.execute(
+                            text("INSERT INTO usuarios (username, senha, perfil) VALUES (:u, :p, :pf)"),
+                            {"u": novo_user, "p": senha_hash, "pf": novo_perfil}
+                        )
+                        s.commit()
+                    st.sidebar.success(f"Usuário '{novo_user}' cadastrado com sucesso!")
+                except Exception as e:
+                    st.sidebar.error(f"Erro (usuário já existe?): {e}")
+            else:
+                st.sidebar.warning("Preencha usuário e senha.")
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
@@ -34,7 +120,6 @@ lista_rotina = [
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
 
-# Dicionário de UBS por Distrito
 ubs_por_distrito = {
     "Distrito 1": ["Alto", "Bairro Novo I", "Bairro Novo II", "Cordeiro", "Primavera"],
     "Distrito 2": ["Juá", "Nações", "Nordeste I", "Nordeste II", "Nordeste III"],
@@ -42,23 +127,22 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri (São Francisco de Assis)", "Tananduba"]
 }
 
-# Controle dinâmico das abas com base no perfil
+# Controle de abas por perfil
 if is_admin:
     tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 else:
-    # Técnico enxerga apenas a aba de lançamento
-    tab1 = st.container()
+    tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)"])
     st.sidebar.info("👤 Perfil Técnico: Acesso restrito apenas à tela de lançamento.")
 
-# --- ABA 1 / TELA DE LANÇAMENTO ---
-with (tab1 if is_admin else st):
+# --- ABA 1: LANÇAMENTO ---
+with tab1:
     st.subheader("Painel de Lançamento por Posto de Saúde")
-    distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()))
-    ubs_selecionada = st.selectbox("Selecione a Unidade de Saúde (UBS):", ubs_por_distrito.get(distrito_selecionado, []))
-    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"])
+    distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), key="sel_distrito")
+    ubs_selecionada = st.selectbox("Selecione a Unidade de Saúde (UBS):", ubs_por_distrito.get(distrito_selecionado, []), key="sel_ubs")
+    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"], key="sel_turno")
     
     st.markdown("---")
-    categoria_vacina = st.radio("Selecione o grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True)
+    categoria_vacina = st.radio("Selecione o grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, key="sel_cat")
     
     try:
         df_existente = conn.query(
@@ -104,8 +188,8 @@ with (tab1 if is_admin else st):
             st.error(f"Erro ao salvar: {e}")
 
 # --- ABA 2: RELATÓRIO CONSOLIDADO (APENAS PARA ADMINISTRADORES) ---
-if is_admin:
-    with tab2:
+with tab2:
+    if is_admin:
         st.markdown("### 📊 Painel Geral de Relatórios")
         if st.button("🔄 Atualizar Relatório"): st.rerun()
 
@@ -135,7 +219,8 @@ if is_admin:
             modo_visualizacao = st.radio(
                 "🔍 Visualizar consolidado por:", 
                 ["Distrito", "Estabelecimento (UBS)"], 
-                horizontal=True
+                horizontal=True,
+                key="radio_modo_vis"
             )
             
             nivel_agrupamento = 'distrito' if modo_visualizacao == "Distrito" else ['distrito', 'unidade_saude']
@@ -220,3 +305,5 @@ if is_admin:
             )
         else:
             st.info("👈 Nenhum dado recebido do banco ainda.")
+    else:
+        st.warning("🔒 Acesso restrito. Esta aba está disponível apenas para administradores.")
