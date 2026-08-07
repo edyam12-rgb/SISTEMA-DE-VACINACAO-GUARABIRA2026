@@ -147,7 +147,6 @@ if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 R
 else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
-    # Inicializa estados de navegação
     if "sel_distrito_ativo" not in st.session_state:
         st.session_state.sel_distrito_ativo = list(ubs_por_distrito.keys())[0] if is_admin else st.session_state.distrito_user
     if "sel_ubs_ativo" not in st.session_state:
@@ -157,28 +156,6 @@ with tab1:
     if "sel_cat_ativo" not in st.session_state:
         st.session_state.sel_cat_ativo = "💉 Vacinas de Rotina"
 
-    # Formulário para seletores
-    with st.form("form_seletor_turno"):
-        col1, col2, col3 = st.columns(3)
-        if is_admin:
-            f_distrito = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(st.session_state.sel_distrito_ativo) if st.session_state.sel_distrito_ativo in ubs_por_distrito else 0)
-            lista_ubs_disp = ubs_por_distrito.get(f_distrito, [])
-            idx_ubs = lista_ubs_disp.index(st.session_state.sel_ubs_ativo) if st.session_state.sel_ubs_ativo in lista_ubs_disp else 0
-            f_ubs = col2.selectbox("Selecione a UBS:", lista_ubs_disp, index=idx_ubs)
-        else:
-            f_distrito = st.session_state.distrito_user
-            f_ubs = st.session_state.ubs_user
-            col1.write(f"**Distrito:** {f_distrito}")
-            col2.write(f"**UBS:** {f_ubs}")
-
-        lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
-        f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo))
-        
-        f_cat = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, index=0 if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina" else 1)
-        
-        btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade")
-
-    # Busca dados atuais do banco para o turno ATIVO atual
     try:
         df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.sel_distrito_ativo, "u": st.session_state.sel_ubs_ativo, "t": st.session_state.sel_turno_ativo}, ttl=0)
     except: df_existente = pd.DataFrame()
@@ -199,7 +176,6 @@ with tab1:
     editor_key = f"editor_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}_{st.session_state.sel_cat_ativo}"
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
 
-    # Verificação de alteração pendente
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
     dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
     
@@ -212,18 +188,33 @@ with tab1:
             tem_pendencia = True
             break
 
-    # Detecta tentativa de mudança nos seletores através do botão do formulário
-    tentativa_troca_formulario = (f_distrito != st.session_state.sel_distrito_ativo) or (f_ubs != st.session_state.sel_ubs_ativo) or (f_turno != st.session_state.sel_turno_ativo) or (f_cat != st.session_state.sel_cat_ativo)
-
-    # O aviso de alterações pendentes aparece na tela, mas o BLOQUEIO só acontece se tentar trocar de turno/UBS
     if tem_pendencia:
-        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**!")
-        if btn_trocar and tentativa_troca_formulario:
-            st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você tentou mudar de turno ou unidade sem salvar as alterações! Clique em '💾 Salvar Lançamento' primeiro.")
-            st.stop()
-    
-    # Se não há pendências e o usuário clicou para trocar, atualiza o estado ativo normalmente
-    if not tem_pendencia and btn_trocar and tentativa_troca_formulario:
+        st.warning("⚠️ **ATENÇÃO:** Existem alterações não salvas neste turno/unidade. **Os seletores abaixo estão bloqueados** até que você clique em **'💾 Salvar Lançamento'**.")
+
+    with st.form("form_seletor_turno"):
+        col1, col2, col3 = st.columns(3)
+        if is_admin:
+            f_distrito = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(st.session_state.sel_distrito_ativo) if st.session_state.sel_distrito_ativo in ubs_por_distrito else 0, disabled=tem_pendencia)
+            lista_ubs_disp = ubs_por_distrito.get(f_distrito, [])
+            idx_ubs = lista_ubs_disp.index(st.session_state.sel_ubs_ativo) if st.session_state.sel_ubs_ativo in lista_ubs_disp else 0
+            f_ubs = col2.selectbox("Selecione a UBS:", lista_ubs_disp, index=idx_ubs, disabled=tem_pendencia)
+        else:
+            f_distrito = st.session_state.distrito_user
+            f_ubs = st.session_state.ubs_user
+            col1.write(f"**Distrito:** {f_distrito}")
+            col2.write(f"**UBS:** {f_ubs}")
+
+        lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+        f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
+        
+        f_cat = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, index=0 if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina" else 1, disabled=tem_pendencia)
+        
+        btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia)
+
+    if tem_pendencia and btn_trocar:
+        st.error("🛑 **BLOQUEIO DE SEGURANÇA:** Você não pode mudar de turno ou unidade com dados pendentes!")
+
+    if not tem_pendencia and btn_trocar:
         st.session_state.sel_distrito_ativo = f_distrito
         st.session_state.sel_ubs_ativo = f_ubs
         st.session_state.sel_turno_ativo = f_turno
@@ -243,10 +234,16 @@ with tab1:
 
 with tab2:
     if is_admin:
+        st.markdown("### 📊 Painel de Relatório Consolidado")
+        
+        col_btn1, col_btn2 = st.columns([2, 5])
+        if col_btn1.button("🔄 Atualizar Relatório", type="secondary"):
+            st.rerun()
+
         with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
             st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
-            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
-            if st.button("🗑️ Apagar Todos os Dados do Servidor"):
+            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.", key="chk_limpar_banco")
+            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
                 if confirmacao:
                     try:
                         with conn.session as s:
@@ -261,9 +258,10 @@ with tab2:
         
         try: df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
         except: df_banco = pd.DataFrame()
+
         if not df_banco.empty:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
-            modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True)
+            modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
             nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
             lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
@@ -272,7 +270,8 @@ with tab2:
                 if not df_t.empty:
                     cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
                     cons['TOTAL'] = cons.sum(axis=1)
-                    st.markdown(f"#### ⏰ {t}"); st.dataframe(cons, use_container_width=True)
+                    st.markdown(f"#### ⏰ {t}")
+                    st.dataframe(cons, use_container_width=True)
             
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
@@ -294,7 +293,10 @@ with tab2:
                 df_geral.to_excel(writer, sheet_name='TOTAL_GERAL')
                 df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
             st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    else: st.warning("🔒 Acesso restrito apenas para administradores.")
+        else:
+            st.info("👈 Nenhum dado registrado no banco de dados ainda.")
+    else: 
+        st.warning("🔒 Acesso restrito apenas para administradores.")
 
 with tab3:
     if is_admin:
