@@ -13,7 +13,14 @@ try:
 except Exception as e:
     st.error("Erro ao configurar a conexão com o banco de dados.")
 
-# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS E O ADMIN PADRÃO ---
+ubs_por_distrito = {
+    "Distrito 1": ["Alto", "Bairro Novo I", "Bairro Novo II", "Cordeiro", "Primavera"],
+    "Distrito 2": ["Juá", "Nações", "Nordeste I", "Nordeste II", "Nordeste III"],
+    "Distrito 3": ["Assis", "Clóvis Bezerra", "Rosário", "São José", "Santa Terezinha"],
+    "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri (São Francisco de Assis)", "Tananduba"]
+}
+
+# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS COM VÍNCULO DE UBS ---
 def inicializar_tabela_usuarios():
     try:
         with conn.session as s:
@@ -22,15 +29,17 @@ def inicializar_tabela_usuarios():
                     id SERIAL PRIMARY KEY,
                     username VARCHAR(50) UNIQUE NOT NULL,
                     senha VARCHAR(255) NOT NULL,
-                    perfil VARCHAR(20) NOT NULL
+                    perfil VARCHAR(20) NOT NULL,
+                    distrito VARCHAR(50),
+                    ubs VARCHAR(100)
                 )
             """))
             res = s.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()
             if res[0] == 0:
                 senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
                 s.execute(
-                    text("INSERT INTO usuarios (username, senha, perfil) VALUES (:u, :p, :pf)"),
-                    {"u": "admin", "p": senha_hash, "pf": "Administrador"}
+                    text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
+                    {"u": "admin", "p": senha_hash, "pf": "Administrador", "d": "Geral", "ub": "Geral"}
                 )
             s.commit()
     except Exception as e:
@@ -43,6 +52,8 @@ if "logado" not in st.session_state:
     st.session_state.logado = False
     st.session_state.username = ""
     st.session_state.perfil = ""
+    st.session_state.distrito_user = ""
+    st.session_state.ubs_user = ""
 
 st.sidebar.title("🔐 Acesso ao Sistema")
 
@@ -64,6 +75,8 @@ if not st.session_state.logado:
                     st.session_state.logado = True
                     st.session_state.username = login_user
                     st.session_state.perfil = df_user.iloc[0]["perfil"]
+                    st.session_state.distrito_user = df_user.iloc[0]["distrito"]
+                    st.session_state.ubs_user = df_user.iloc[0]["ubs"]
                     st.rerun()
                 else:
                     st.sidebar.error("Usuário ou senha incorretos!")
@@ -74,47 +87,69 @@ if not st.session_state.logado:
     st.stop()
 
 st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{st.session_state.perfil}**")
+if st.session_state.perfil == "Técnico":
+    st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
+
 if st.sidebar.button("🚪 Sair / Desconectar"):
     st.session_state.logado = False
     st.session_state.username = ""
     st.session_state.perfil = ""
+    st.session_state.distrito_user = ""
+    st.session_state.ubs_user = ""
     st.rerun()
 
 is_admin = (st.session_state.perfil == "Administrador")
 
-# --- PAINEL DE CADASTRO DE PERFIS (ADMINS) ---
+# --- PAINEL DE CADASTRO DE PERFIS (ADMINS) COM VÍNCULO DE UBS ---
 if is_admin:
     with st.sidebar.expander("👤 Gerenciar / Cadastrar Usuários"):
         novo_user = st.text_input("Novo Usuário", key="cad_user")
         nova_senha = st.text_input("Senha", type="password", key="cad_senha")
         novo_perfil = st.selectbox("Indicar Perfil", ["Técnico", "Administrador"], key="cad_perfil")
+        
+        # Seleção de Distrito e UBS para vincular ao técnico
+        cad_distrito = "Geral"
+        cad_ubs = "Geral"
+        if novo_perfil == "Técnico":
+            cad_distrito = st.selectbox("Distrito do Técnico", list(ubs_por_distrito.keys()), key="cad_dist")
+            cad_ubs = st.selectbox("UBS do Técnico", ubs_por_distrito.get(cad_distrito, []), key="cad_ubs_loc")
+
         if st.button("💾 Cadastrar Usuário"):
             if novo_user and nova_senha:
                 try:
                     senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
                     with conn.session as s:
-                        s.execute(text("INSERT INTO usuarios (username, senha, perfil) VALUES (:u, :p, :pf)"),
-                                  {"u": novo_user, "p": senha_hash, "pf": novo_perfil})
+                        s.execute(
+                            text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
+                            {"u": novo_user, "p": senha_hash, "pf": novo_perfil, "d": cad_distrito, "ub": cad_ubs}
+                        )
                         s.commit()
-                    st.sidebar.success(f"Usuário '{novo_user}' cadastrado!")
-                except Exception as e: st.sidebar.error("Erro ao cadastrar.")
-            else: st.sidebar.warning("Preencha campos.")
+                    st.sidebar.success(f"Usuário '{novo_user}' cadastrado com sucesso!")
+                except Exception as e: st.sidebar.error("Erro ao cadastrar (usuário já existe?).")
+            else: st.sidebar.warning("Preencha todos os campos.")
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# Listas
+# Listas oficiais
 lista_rotina = ["ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"]
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
-ubs_por_distrito = {"Distrito 1": ["Alto", "Bairro Novo I", "Bairro Novo II", "Cordeiro", "Primavera"], "Distrito 2": ["Juá", "Nações", "Nordeste I", "Nordeste II", "Nordeste III"], "Distrito 3": ["Assis", "Clóvis Bezerra", "Rosário", "São José", "Santa Terezinha"], "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri (São Francisco de Assis)", "Tananduba"]}
 
 # Abas
 if is_admin: tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 else: tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)"])
 
 with tab1:
-    distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), key="sel_distrito")
-    ubs_selecionada = st.selectbox("Selecione a UBS:", ubs_por_distrito.get(distrito_selecionado, []), key="sel_ubs")
+    # Se for ADMIN, ele pode escolher qualquer distrito/UBS. Se for TÉCNICO, o sistema trava nos dados dele.
+    if is_admin:
+        distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), key="sel_distrito")
+        ubs_selecionada = st.selectbox("Selecione a UBS:", ubs_por_distrito.get(distrito_selecionado, []), key="sel_ubs")
+    else:
+        st.info(f"📝 Lançamento restrito para a sua unidade vinculada.")
+        distrito_selecionado = st.session_state.distrito_user
+        ubs_selecionada = st.session_state.ubs_user
+        st.write(f"**Distrito:** {distrito_selecionado} | **UBS:** {ubs_selecionada}")
+
     turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"], key="sel_turno")
     
     categoria_vacina = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, key="sel_cat")
@@ -152,7 +187,6 @@ with tab1:
 
 with tab2:
     if is_admin:
-        # --- BLOCO DE LIMPEZA DO SERVIDOR REINSERIDO ---
         with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
             st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
             confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
@@ -206,4 +240,4 @@ with tab2:
                 df_geral.to_excel(writer, sheet_name='TOTAL_GERAL')
                 df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
             st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    else: st.warning("🔒 Acesso restrito.")
+    else: st.warning("🔒 Acesso restrito apenas para administradores.")
