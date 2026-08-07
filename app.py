@@ -181,7 +181,7 @@ with tab1:
         
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
     
-    # --- VERIFICAÇÃO DE DADOS NÃO SALVOS (AVISO DE ESQUECIMENTO) ---
+    # --- AVISO DE ESQUECIMENTO DE SALVAMENTO (APLICADO PARA TÉCNICOS E ADMINS) ---
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
     dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
     
