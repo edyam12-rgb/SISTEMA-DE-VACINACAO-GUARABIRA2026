@@ -20,10 +20,11 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri (São Francisco de Assis)", "Tananduba"]
 }
 
-# --- FUNÇÃO PARA CRIAR A TABELA DE USUÁRIOS COM VÍNCULO DE UBS ---
+# --- FUNÇÃO PARA CRIAR OU ATUALIZAR A TABELA DE USUÁRIOS NO BANCO ---
 def inicializar_tabela_usuarios():
     try:
         with conn.session as s:
+            # Cria a tabela caso não exista
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -34,6 +35,17 @@ def inicializar_tabela_usuarios():
                     ubs VARCHAR(100)
                 )
             """))
+            s.commit()
+            
+            # Garante que as colunas distrito e ubs existam caso a tabela seja antiga
+            try:
+                s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS distrito VARCHAR(50)"))
+                s.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS ubs VARCHAR(100)"))
+                s.commit()
+            except:
+                s.rollback()
+
+            # Insere o admin padrão se a tabela estiver vazia
             res = s.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()
             if res[0] == 0:
                 senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
@@ -41,7 +53,7 @@ def inicializar_tabela_usuarios():
                     text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
                     {"u": "admin", "p": senha_hash, "pf": "Administrador", "d": "Geral", "ub": "Geral"}
                 )
-            s.commit()
+                s.commit()
     except Exception as e:
         pass
 
@@ -75,8 +87,8 @@ if not st.session_state.logado:
                     st.session_state.logado = True
                     st.session_state.username = login_user
                     st.session_state.perfil = df_user.iloc[0]["perfil"]
-                    st.session_state.distrito_user = df_user.iloc[0]["distrito"]
-                    st.session_state.ubs_user = df_user.iloc[0]["ubs"]
+                    st.session_state.distrito_user = df_user.iloc[0]["distrito"] or "Geral"
+                    st.session_state.ubs_user = df_user.iloc[0]["ubs"] or "Geral"
                     st.rerun()
                 else:
                     st.sidebar.error("Usuário ou senha incorretos!")
@@ -107,7 +119,6 @@ if is_admin:
         nova_senha = st.text_input("Senha", type="password", key="cad_senha")
         novo_perfil = st.selectbox("Indicar Perfil", ["Técnico", "Administrador"], key="cad_perfil")
         
-        # Seleção de Distrito e UBS para vincular ao técnico
         cad_distrito = "Geral"
         cad_ubs = "Geral"
         if novo_perfil == "Técnico":
@@ -130,17 +141,14 @@ if is_admin:
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# Listas oficiais
 lista_rotina = ["ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"]
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
 
-# Abas
 if is_admin: tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 else: tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)"])
 
 with tab1:
-    # Se for ADMIN, ele pode escolher qualquer distrito/UBS. Se for TÉCNICO, o sistema trava nos dados dele.
     if is_admin:
         distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), key="sel_distrito")
         ubs_selecionada = st.selectbox("Selecione a UBS:", ubs_por_distrito.get(distrito_selecionado, []), key="sel_ubs")
@@ -211,7 +219,6 @@ with tab2:
             nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
             lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
-            # Painel Turnos
             for t in ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
@@ -219,7 +226,6 @@ with tab2:
                     cons['TOTAL'] = cons.sum(axis=1)
                     st.markdown(f"#### ⏰ {t}"); st.dataframe(cons, use_container_width=True)
             
-            # Total Geral Oficial
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
             for v in lista_descontos:
