@@ -114,7 +114,6 @@ with tab2:
 
         df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
         
-        # Escolha do nível de visualização (Distrito ou Estabelecimento/UBS)
         st.markdown("---")
         modo_visualizacao = st.radio(
             "🔍 Visualizar consolidado por:", 
@@ -145,9 +144,25 @@ with tab2:
             else:
                 st.info(f"Nenhum lançamento registrado para o turno: {t}")
 
-        # 2. Total Geral Acumulado com Descontos e Soma por Coluna
+        # 1.1 Total Geral para os Três Turnos (Somados)
+        st.markdown("#### 🏁 Total Geral Acumulado (Três Turnos Somados)")
+        if modo_visualizacao == "Distrito":
+            cons_geral_turnos = df_banco.groupby(['distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+        else:
+            cons_geral_turnos = df_banco.groupby(['distrito', 'unidade_saude', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+        
+        for col in ['ROTINA', 'COVID']:
+            if col not in cons_geral_turnos.columns: cons_geral_turnos[col] = 0
+        cons_geral_turnos['TOTAL'] = cons_geral_turnos.sum(axis=1)
+        
+        linha_total_turnos = cons_geral_turnos.sum(numeric_only=True)
+        linha_total_turnos.name = 'TOTAL FINAL'
+        cons_geral_turnos_com_soma = pd.concat([cons_geral_turnos, linha_total_turnos.to_frame().T])
+        st.dataframe(cons_geral_turnos_com_soma, use_container_width=True)
+
+        # 2. Total Geral Acumulado com Descontos e Soma por Coluna (Completo de Vacinas)
         st.markdown("---")
-        st.markdown(f"### 🏁 Total Geral Acumulado (Por {modo_visualizacao})")
+        st.markdown(f"### 📋 Detalhamento Oficial com Descontos (Por {modo_visualizacao})")
         
         df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
         tabela = df_banco.pivot_table(index=nivel_agrupamento, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
