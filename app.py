@@ -12,9 +12,17 @@ try:
 except Exception as e:
     st.error("Erro ao configurar a conexão com o banco de dados.")
 
-st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
+# --- SISTEMA DE LOGIN E PERFIS NA BARRA LATERAL ---
+st.sidebar.title("🔐 Controle de Acesso")
+perfil_selecionado = st.sidebar.selectbox(
+    "Selecione o seu perfil:",
+    ["Técnico (Apenas Lançamento)", "Administrador (Sistema Completo)"]
+)
 
-tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
+# Identifica se é administrador
+is_admin = (perfil_selecionado == "Administrador (Sistema Completo)")
+
+st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
 # Listas oficiais
 lista_rotina = [
@@ -34,8 +42,16 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri (São Francisco de Assis)", "Tananduba"]
 }
 
-# --- ABA 1: LANÇAMENTO ---
-with tab1:
+# Controle dinâmico das abas com base no perfil
+if is_admin:
+    tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
+else:
+    # Técnico enxerga apenas a aba de lançamento
+    tab1 = st.container()
+    st.sidebar.info("👤 Perfil Técnico: Acesso restrito apenas à tela de lançamento.")
+
+# --- ABA 1 / TELA DE LANÇAMENTO ---
+with (tab1 if is_admin else st):
     st.subheader("Painel de Lançamento por Posto de Saúde")
     distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()))
     ubs_selecionada = st.selectbox("Selecione a Unidade de Saúde (UBS):", ubs_por_distrito.get(distrito_selecionado, []))
@@ -87,119 +103,120 @@ with tab1:
         except Exception as e: 
             st.error(f"Erro ao salvar: {e}")
 
-# --- ABA 2: RELATÓRIO CONSOLIDADO ---
-with tab2:
-    st.markdown("### 📊 Painel Geral de Relatórios")
-    if st.button("🔄 Atualizar Relatório"): st.rerun()
+# --- ABA 2: RELATÓRIO CONSOLIDADO (APENAS PARA ADMINISTRADORES) ---
+if is_admin:
+    with tab2:
+        st.markdown("### 📊 Painel Geral de Relatórios")
+        if st.button("🔄 Atualizar Relatório"): st.rerun()
 
-    try: df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
-    except: df_banco = pd.DataFrame()
+        try: df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
+        except: df_banco = pd.DataFrame()
 
-    if not df_banco.empty:
-        with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
-            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
-            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
-            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
-                if confirmacao:
-                    try:
-                        with conn.session as s:
-                            s.execute(text("DELETE FROM registros_vacinacao"))
-                            s.commit()
-                        st.success("🗑️ Banco de dados limpo com sucesso!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erro ao limpar banco: {e}")
+        if not df_banco.empty:
+            with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
+                st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
+                confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
+                if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
+                    if confirmacao:
+                        try:
+                            with conn.session as s:
+                                s.execute(text("DELETE FROM registros_vacinacao"))
+                                s.commit()
+                            st.success("🗑️ Banco de dados limpo com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao limpar banco: {e}")
+                    else:
+                        st.error("Marque a caixa de confirmação para poder apagar os dados.")
+
+            df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
+            
+            st.markdown("---")
+            modo_visualizacao = st.radio(
+                "🔍 Visualizar consolidado por:", 
+                ["Distrito", "Estabelecimento (UBS)"], 
+                horizontal=True
+            )
+            
+            nivel_agrupamento = 'distrito' if modo_visualizacao == "Distrito" else ['distrito', 'unidade_saude']
+
+            # 1. Painel Consolidado por Turno Separado
+            st.markdown("---")
+            st.markdown("### 🕒 Consolidado Separado por Turno")
+            
+            turnos_disponiveis = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+            for t in turnos_disponiveis:
+                df_turno = df_banco[df_banco['turno'] == t]
+                st.markdown(f"#### ⏰ Turno: {t}")
+                if not df_turno.empty:
+                    if modo_visualizacao == "Distrito":
+                        cons_t = df_turno.groupby(['distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                    else:
+                        cons_t = df_turno.groupby(['distrito', 'unidade_saude', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                    
+                    for col in ['ROTINA', 'COVID']:
+                        if col not in cons_t.columns: cons_t[col] = 0
+                    cons_t['TOTAL'] = cons_t.sum(axis=1)
+                    st.dataframe(cons_t, use_container_width=True)
                 else:
-                    st.error("Marque a caixa de confirmação para poder apagar os dados.")
+                    st.info(f"Nenhum lançamento registrado para o turno: {t}")
 
-        df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
-        
-        st.markdown("---")
-        modo_visualizacao = st.radio(
-            "🔍 Visualizar consolidado por:", 
-            ["Distrito", "Estabelecimento (UBS)"], 
-            horizontal=True
-        )
-        
-        nivel_agrupamento = 'distrito' if modo_visualizacao == "Distrito" else ['distrito', 'unidade_saude']
-
-        # 1. Painel Consolidado por Turno Separado
-        st.markdown("---")
-        st.markdown("### 🕒 Consolidado Separado por Turno")
-        
-        turnos_disponiveis = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
-        for t in turnos_disponiveis:
-            df_turno = df_banco[df_banco['turno'] == t]
-            st.markdown(f"#### ⏰ Turno: {t}")
-            if not df_turno.empty:
-                if modo_visualizacao == "Distrito":
-                    cons_t = df_turno.groupby(['distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
-                else:
-                    cons_t = df_turno.groupby(['distrito', 'unidade_saude', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
-                
-                for col in ['ROTINA', 'COVID']:
-                    if col not in cons_t.columns: cons_t[col] = 0
-                cons_t['TOTAL'] = cons_t.sum(axis=1)
-                st.dataframe(cons_t, use_container_width=True)
+            # 1.1 Total Geral para os Três Turnos (Somados)
+            st.markdown("#### 🏁 Total Geral Acumulado (Três Turnos Somados)")
+            if modo_visualizacao == "Distrito":
+                cons_geral_turnos = df_banco.groupby(['distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
             else:
-                st.info(f"Nenhum lançamento registrado para o turno: {t}")
+                cons_geral_turnos = df_banco.groupby(['distrito', 'unidade_saude', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+            
+            for col in ['ROTINA', 'COVID']:
+                if col not in cons_geral_turnos.columns: cons_geral_turnos[col] = 0
+            cons_geral_turnos['TOTAL'] = cons_geral_turnos.sum(axis=1)
+            
+            linha_total_turnos = cons_geral_turnos.sum(numeric_only=True)
+            linha_total_turnos.name = 'TOTAL FINAL'
+            cons_geral_turnos_com_soma = pd.concat([cons_geral_turnos, linha_total_turnos.to_frame().T])
+            st.dataframe(cons_geral_turnos_com_soma, use_container_width=True)
 
-        # 1.1 Total Geral para os Três Turnos (Somados)
-        st.markdown("#### 🏁 Total Geral Acumulado (Três Turnos Somados)")
-        if modo_visualizacao == "Distrito":
-            cons_geral_turnos = df_banco.groupby(['distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+            # 2. Total Geral Acumulado com Descontos e Soma por Coluna
+            st.markdown("---")
+            st.markdown(f"### 📋 Detalhamento Oficial com Descontos (Por {modo_visualizacao})")
+            
+            df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
+            tabela = df_banco.pivot_table(index=nivel_agrupamento, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
+            
+            for v in lista_descontos:
+                if v not in tabela.columns: tabela[v] = 0
+                
+            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel_agrupamento)['quantidade'].sum()
+            soma_descontos = tabela[lista_descontos].sum(axis=1)
+            
+            df_geral = pd.DataFrame(index=tabela.index)
+            df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
+            
+            for v in lista_descontos: 
+                df_geral[v] = tabela[v]
+                
+            df_geral['COVID'] = df_banco[df_banco['vacina'].isin(lista_covid)].groupby(nivel_agrupamento)['quantidade'].sum().reindex(df_geral.index).fillna(0)
+            
+            df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
+            
+            linha_total = df_geral.sum(numeric_only=True)
+            linha_total.name = 'TOTAL FINAL'
+            df_geral_com_soma = pd.concat([df_geral, linha_total.to_frame().T])
+            
+            st.dataframe(df_geral_com_soma, use_container_width=True)
+
+            st.markdown("---")
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_geral_com_soma.to_excel(writer, sheet_name='TOTAL_GERAL')
+                df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
+            
+            st.download_button(
+                label="📥 Baixar Planilha Consolidada (.xlsx)",
+                data=buffer.getvalue(),
+                file_name="Relatorio_Final_Dia_D.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
         else:
-            cons_geral_turnos = df_banco.groupby(['distrito', 'unidade_saude', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
-        
-        for col in ['ROTINA', 'COVID']:
-            if col not in cons_geral_turnos.columns: cons_geral_turnos[col] = 0
-        cons_geral_turnos['TOTAL'] = cons_geral_turnos.sum(axis=1)
-        
-        linha_total_turnos = cons_geral_turnos.sum(numeric_only=True)
-        linha_total_turnos.name = 'TOTAL FINAL'
-        cons_geral_turnos_com_soma = pd.concat([cons_geral_turnos, linha_total_turnos.to_frame().T])
-        st.dataframe(cons_geral_turnos_com_soma, use_container_width=True)
-
-        # 2. Total Geral Acumulado com Descontos e Soma por Coluna (Completo de Vacinas)
-        st.markdown("---")
-        st.markdown(f"### 📋 Detalhamento Oficial com Descontos (Por {modo_visualizacao})")
-        
-        df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
-        tabela = df_banco.pivot_table(index=nivel_agrupamento, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
-        
-        for v in lista_descontos:
-            if v not in tabela.columns: tabela[v] = 0
-            
-        rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel_agrupamento)['quantidade'].sum()
-        soma_descontos = tabela[lista_descontos].sum(axis=1)
-        
-        df_geral = pd.DataFrame(index=tabela.index)
-        df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
-        
-        for v in lista_descontos: 
-            df_geral[v] = tabela[v]
-            
-        df_geral['COVID'] = df_banco[df_banco['vacina'].isin(lista_covid)].groupby(nivel_agrupamento)['quantidade'].sum().reindex(df_geral.index).fillna(0)
-        
-        df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
-        
-        linha_total = df_geral.sum(numeric_only=True)
-        linha_total.name = 'TOTAL FINAL'
-        df_geral_com_soma = pd.concat([df_geral, linha_total.to_frame().T])
-        
-        st.dataframe(df_geral_com_soma, use_container_width=True)
-
-        st.markdown("---")
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_geral_com_soma.to_excel(writer, sheet_name='TOTAL_GERAL')
-            df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
-        
-        st.download_button(
-            label="📥 Baixar Planilha Consolidada (.xlsx)",
-            data=buffer.getvalue(),
-            file_name="Relatorio_Final_Dia_D.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.info("👈 Nenhum dado recebido do banco ainda.")
+            st.info("👈 Nenhum dado recebido do banco ainda.")
