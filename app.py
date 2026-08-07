@@ -17,12 +17,12 @@ st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 # Abas do sistema
 tab1, tab2 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado"])
 
-# Listas base de vacinas oficiais extraídas da planilha
+# Listas base de vacinas oficiais incluindo a T. Viral 2ª Dose
 lista_rotina = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", 
     "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", 
     "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", 
-    "T. VIRAL", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
+    "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"
 ]
 
 lista_covid = [
@@ -69,7 +69,7 @@ with tab1:
         horizontal=True
     )
 
-    # Busca valores já salvos no banco para esta UBS e Turno para preencher ou zerar corretamente
+    # Busca valores já salvos no banco para esta UBS e Turno
     try:
         df_existente = conn.query(
             "SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t",
@@ -103,7 +103,6 @@ with tab1:
 
         try:
             with conn.session as s:
-                # Remove registros anteriores desta UBS e Turno para atualizar com o novo estado da tela
                 sql_delete = text("""
                     DELETE FROM registros_vacinacao 
                     WHERE distrito = :distrito 
@@ -116,7 +115,6 @@ with tab1:
                     "turno": turno_selecionado
                 })
 
-                # Insere apenas os que possuem quantidade > 0 na tela atual
                 if not df_salvar.empty:
                     for _, row in df_salvar.iterrows():
                         sql_insert = text("""
@@ -152,7 +150,6 @@ with tab2:
         df_banco = pd.DataFrame()
         
     if not df_banco.empty:
-        # Botão para limpar/zerar o banco inteiro com caixa de confirmação
         with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
             st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
             confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
@@ -169,44 +166,71 @@ with tab2:
                 else:
                     st.error("Marque a caixa de confirmação para poder apagar os dados.")
 
-        # Função para agrupar categorias conforme a planilha oficial
-        def categorizar_vacina(nome):
+        # Classificação detalhada para o relatório por turno (Rotina e Covid)
+        def classificar_por_turno(nome):
             nome = str(nome).upper()
-            if "COVID" in nome or "PFIZER" in nome: return "COVID"
-            if "INFLUENZA" in nome: return "INFLUENZA"
-            if "T. VIRAL" in nome or "TETRA" in nome: return "T VIRAL"
-            if "F. AMARELA" in nome: return "F. AMARELA"
+            if "COVID" in nome or "PFIZER" in nome:
+                return "COVID"
             return "ROTINA"
 
-        df_banco['CATEGORIA'] = df_banco['vacina'].apply(categorizar_vacina)
+        df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(classificar_por_turno)
         
-        # Agrupamento para o formato da planilha
-        consolidado = df_banco.groupby(['turno', 'distrito', 'CATEGORIA'])['quantidade'].sum().unstack(fill_value=0)
-        
-        # Garante colunas essenciais padrão
-        for col in ['ROTINA', 'COVID', 'INFLUENZA', 'T VIRAL', 'F. AMARELA']:
-            if col not in consolidado.columns:
-                consolidado[col] = 0
-                
-        consolidado['TOTAL'] = consolidado.sum(axis=1)
+        # 1. Consolidado por Turno (Mostrando Rotina e Covid conforme solicitado)
+        consolidado_turno = df_banco.groupby(['turno', 'distrito', 'GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+        for col in ['ROTINA', 'COVID']:
+            if col not in consolidado_turno.columns:
+                consolidado_turno[col] = 0
+        consolidado_turno['TOTAL'] = consolidado_turno.sum(axis=1)
 
-        # Exibição por blocos de Turno
         turnos = df_banco['turno'].unique()
         for t in turnos:
             st.markdown(f"#### 🕒 Turno: {t}")
-            tabela_turno = consolidado.loc[t]
-            st.dataframe(tabela_turno, use_container_width=True)
+            st.dataframe(consolidado_turno.loc[t], use_container_width=True)
         
-        # TOTAL GERAL (Corrigido para somar corretamente independente do multi-índice)
+        # 2. TOTAL GERAL ACUMULADO (Descontando Influenza, T. Viral 1ª, T. Viral 2ª e F. Amarela do Total de Rotina)
         st.markdown("---")
-        st.markdown("#### 🏁 TOTAL GERAL (Acumulado)")
-        total_geral = consolidado.groupby(level='distrito').sum()
-        st.dataframe(total_geral, use_container_width=True)
+        st.markdown("#### 🏁 TOTAL GERAL (Acumulado com Descontos Oficiais)")
+
+        # Cria colunas específicas detalhadas para o cálculo do total geral
+        df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
+        
+        # Pivot completo por vacina para isolar os descontos necessários
+        tabela_completa = df_banco.pivot_table(index='distrito', columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
+        
+        # Garante a existência das colunas necessárias
+        for v in ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA']:
+            if v not in tabela_completa.columns:
+                tabela_completa[v] = 0
+
+        # Soma total geral de rotina por distrito
+        rotina_total = df_banco[df_banco['GRUPO_TURNO'] == 'ROTINA'].groupby('distrito')['quantidade'].sum()
+        covid_total = df_banco[df_banco['GRUPO_TURNO'] == 'COVID'].groupby('distrito')['quantidade'].sum()
+
+        df_geral = pd.DataFrame(index=tabela_completa.index)
+        df_geral['ROTINA'] = rotina_total
+        df_geral['COVID'] = covid_total
+        df_geral['INFLUENZA'] = tabela_completa['INFLUENZA']
+        df_geral['T VIRAL (1ª D)'] = tabela_completa['T. VIRAL']
+        df_geral['T VIRAL (2ª D)'] = tabela_completa['T. VIRAL 2ª DOSE']
+        df_geral['F. AMARELA'] = tabela_completa['F. AMARELA']
+        
+        # Cálculo do Total Geral descontando os itens solicitados do total de rotina + covid
+        df_geral['TOTAL GERAL'] = (
+            df_geral['ROTINA'].fillna(0) + df_geral['COVID'].fillna(0) 
+            - df_geral['INFLUENZA'] - df_geral['T VIRAL (1ª D)'] 
+            - df_geral['T VIRAL (2ª D)'] - df_geral['F. AMARELA']
+        )
+        
+        # Preenche vazios com 0
+        df_geral = df_geral.fillna(0)
+
+        st.dataframe(df_geral, use_container_width=True)
 
         st.markdown("---")
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            consolidado.to_excel(writer, sheet_name='CONSOLIDADO')
+            consolidado_turno.to_excel(writer, sheet_name='CONSOLIDADO_TURNO')
+            df_geral.to_excel(writer, sheet_name='TOTAL_GERAL')
             df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
         
         st.download_button(
