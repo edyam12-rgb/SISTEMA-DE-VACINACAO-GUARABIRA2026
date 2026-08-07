@@ -147,18 +147,21 @@ if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 R
 else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
-    if is_admin:
-        distrito_selecionado = st.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), key="sel_distrito")
-        ubs_selecionada = st.selectbox("Selecione a UBS:", ubs_por_distrito.get(distrito_selecionado, []), key="sel_ubs")
-    else:
-        st.info(f"📝 Lançamento restrito para a sua unidade vinculada.")
-        distrito_selecionado = st.session_state.distrito_user
-        ubs_selecionada = st.session_state.ubs_user
-        st.write(f"**Distrito:** {distrito_selecionado} | **UBS:** {ubs_selecionada}")
+    with st.form("form_selecao"):
+        col1, col2, col3 = st.columns(3)
+        if is_admin:
+            distrito_selecionado = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()))
+            ubs_selecionada = col2.selectbox("Selecione a UBS:", ubs_por_distrito.get(distrito_selecionado, []))
+        else:
+            distrito_selecionado = st.session_state.distrito_user
+            ubs_selecionada = st.session_state.ubs_user
+            col1.write(f"**Distrito:** {distrito_selecionado}")
+            col2.write(f"**UBS:** {ubs_selecionada}")
 
-    turno_selecionado = st.selectbox("Selecione o Turno:", ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"], key="sel_turno")
-    
-    categoria_vacina = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, key="sel_cat")
+        turno_selecionado = col3.selectbox("Selecione o Turno:", ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"])
+        btn_confirmar = st.form_submit_button("Confirmar Seleção")
+
+    categoria_vacina = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True)
     
     try:
         df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": distrito_selecionado, "u": ubs_selecionada, "t": turno_selecionado}, ttl=0)
@@ -170,29 +173,21 @@ with tab1:
             for _, r in df_existente.iterrows(): 
                 if r["vacina"] in dic: dic[r["vacina"]] = r["quantidade"]
         df_tela = pd.DataFrame({"VACINA": lista_rotina, "QUANTIDADE": [dic[v] for v in lista_rotina]})
-        editor_key = f"rotina_{distrito_selecionado}_{ubs_selecionada}_{turno_selecionado}"
     else:
         dic = {v: 0 for v in lista_covid}
         if not df_existente.empty: 
             for _, r in df_existente.iterrows(): 
                 if r["vacina"] in dic: dic[r["vacina"]] = r["quantidade"]
         df_tela = pd.DataFrame({"VACINA": lista_covid, "QUANTIDADE": [dic[v] for v in lista_covid]})
-        editor_key = f"covid_{distrito_selecionado}_{ubs_selecionada}_{turno_selecionado}"
         
+    editor_key = f"editor_{distrito_selecionado}_{ubs_selecionada}_{turno_selecionado}_{categoria_vacina}"
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
     
-    # --- AVISO DE ESQUECIMENTO DE SALVAMENTO (APLICADO PARA TÉCNICOS E ADMINS) ---
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
     dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
     
-    tem_alteracao_nao_salva = False
-    for vac, qtd in dict_tela.items():
-        if qtd != dict_banco.get(vac, 0):
-            tem_alteracao_nao_salva = True
-            break
-            
-    if tem_alteracao_nao_salva:
-        st.warning("⚠️ **ATENÇÃO:** Você alterou os números na tabela, mas **ainda não salvou**! Lembre-se de clicar no botão **'💾 Salvar Lançamento'** abaixo antes de mudar de turno ou unidade.")
+    if dict_tela != dict_banco:
+        st.warning("⚠️ **ATENÇÃO:** Você alterou os dados, mas ainda não salvou! **Não mude o turno/UBS agora.** Clique no botão salvar abaixo.")
 
     if st.button("💾 Salvar Lançamento", type="primary"):
         try:
@@ -201,9 +196,9 @@ with tab1:
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
                     s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": distrito_selecionado, "ubs": ubs_selecionada, "turno": turno_selecionado, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
                 s.commit()
-                st.success("✅ Lançamento salvo com sucesso no servidor!")
+                st.success("✅ Salvo com sucesso!")
                 st.rerun()
-        except Exception as e: st.error(f"Erro ao salvar: {e}")
+        except Exception as e: st.error(f"Erro: {e}")
 
 with tab2:
     if is_admin:
@@ -260,7 +255,6 @@ with tab2:
             st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else: st.warning("🔒 Acesso restrito apenas para administradores.")
 
-# --- ABA 3: GERENCIAR USUÁRIOS ---
 with tab3:
     if is_admin:
         st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
@@ -276,7 +270,6 @@ with tab3:
             st.markdown("#### ⚙️ Alterar Perfil ou Excluir Usuário")
             
             usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist())
-            
             user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
             
             with st.form("form_edicao_usuario"):
