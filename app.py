@@ -152,6 +152,23 @@ with tab1:
 
 with tab2:
     if is_admin:
+        # --- BLOCO DE LIMPEZA DO SERVIDOR REINSERIDO ---
+        with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
+            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
+            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.")
+            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
+                if confirmacao:
+                    try:
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM registros_vacinacao"))
+                            s.commit()
+                        st.success("🗑️ Banco de dados limpo com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao limpar banco: {e}")
+                else:
+                    st.error("Marque a caixa de confirmação para poder apagar os dados.")
+        
         try: df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
         except: df_banco = pd.DataFrame()
         if not df_banco.empty:
@@ -182,4 +199,11 @@ with tab2:
             df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
             st.markdown("### 🏁 Total Geral")
             st.dataframe(pd.concat([df_geral, df_geral.sum(numeric_only=True).to_frame().T.rename(index={0: 'TOTAL FINAL'})]), use_container_width=True)
+            
+            st.markdown("---")
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_geral.to_excel(writer, sheet_name='TOTAL_GERAL')
+                df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
+            st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else: st.warning("🔒 Acesso restrito.")
