@@ -103,7 +103,7 @@ with tab1:
 
         try:
             with conn.session as s:
-                # Remove registros anteriores desta UBS e Turno para atualizar com o novo estado da tela (evitando duplicar)
+                # Remove registros anteriores desta UBS e Turno para atualizar com o novo estado da tela
                 sql_delete = text("""
                     DELETE FROM registros_vacinacao 
                     WHERE distrito = :distrito 
@@ -197,10 +197,10 @@ with tab2:
             tabela_turno = consolidado.loc[t]
             st.dataframe(tabela_turno, use_container_width=True)
         
-        # TOTAL GERAL
+        # TOTAL GERAL (Corrigido para somar corretamente independente do multi-índice)
         st.markdown("---")
         st.markdown("#### 🏁 TOTAL GERAL (Acumulado)")
-        total_geral = consolidado.groupby('distrito').sum()
+        total_geral = consolidado.groupby(level='distrito').sum()
         st.dataframe(total_geral, use_container_width=True)
 
         st.markdown("---")
