@@ -105,13 +105,14 @@ with tab2:
             st.markdown(f"#### 🕒 Turno: {t}")
             st.dataframe(consolidado_turno.loc[t], use_container_width=True)
         
-        # 2. TOTAL GERAL ACUMULADO COM SOMAS
+        # 2. TOTAL GERAL ACUMULADO (Seguindo o padrão oficial: Rotina + Covid)
         st.markdown("---")
-        st.markdown("#### 🏁 TOTAL GERAL (Acumulado com Descontos Oficiais)")
+        st.markdown("#### 🏁 TOTAL GERAL (Acumulado Oficial)")
         df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
         tabela_completa = df_banco.pivot_table(index='distrito', columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
-        lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
-        for v in lista_descontos:
+        
+        lista_colunas_detalhe = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
+        for v in lista_colunas_detalhe:
             if v not in tabela_completa.columns: tabela_completa[v] = 0
 
         rotina_total = df_banco[df_banco['GRUPO'] == 'ROTINA'].groupby('distrito')['quantidade'].sum()
@@ -120,11 +121,14 @@ with tab2:
         df_geral = pd.DataFrame(index=tabela_completa.index)
         df_geral['ROTINA'] = rotina_total.reindex(df_geral.index).fillna(0)
         df_geral['COVID'] = covid_total.reindex(df_geral.index).fillna(0)
-        for v in lista_descontos: df_geral[v] = tabela_completa[v]
         
-        df_geral['TOTAL GERAL'] = (df_geral['ROTINA'] - tabela_completa[lista_descontos].sum(axis=1)) + df_geral['COVID']
+        for v in lista_colunas_detalhe: 
+            df_geral[v] = tabela_completa[v]
         
-        # Adicionar linha de totalização final
+        # O Total Geral oficial é a soma da Rotina + Covid (pois Rotina já engloba o detalhamento)
+        df_geral['TOTAL GERAL'] = df_geral['ROTINA'] + df_geral['COVID']
+        
+        # Adicionar linha de totalização final por coluna
         linha_total = df_geral.sum(numeric_only=True)
         linha_total.name = 'TOTAL FINAL'
         df_geral_com_soma = pd.concat([df_geral, linha_total.to_frame().T])
