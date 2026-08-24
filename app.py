@@ -273,7 +273,6 @@ with tab2:
                     cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
                     cons['TOTAL'] = cons.sum(axis=1)
                     
-                    # Adiciona a linha de Soma dos Distritos/Turno se o modo for por UBS
                     if modo == "Estabelecimento (UBS)":
                         soma_distrito = cons.groupby(level=0).sum()
                         soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
@@ -300,7 +299,15 @@ with tab2:
                 soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
                 df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
-            df_geral_com_total = pd.concat([df_geral, df_geral.sum(numeric_only=True).to_frame().T.rename(index={0: 'TOTAL FINAL'})])
+            # CORREÇÃO: Soma apenas o nível principal (Distrito) para o TOTAL FINAL, evitando duplicidade
+            if isinstance(nivel, list):
+                # Se for por UBS, soma apenas as linhas cuja sub-chave não seja 'TOTAL DISTRITO'
+                linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
+                total_final_serie = df_geral.loc[linhas_ubs].sum(numeric_only=True)
+            else:
+                total_final_serie = df_geral.sum(numeric_only=True)
+
+            df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
             st.markdown("### 🏁 Total Geral")
             st.dataframe(df_geral_com_total, use_container_width=True)
             
@@ -353,7 +360,6 @@ with tab2:
             elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
             elements.append(Spacer(1, 2))
             
-            # Adiciona as tabelas por Turno no PDF com subtotais por distrito
             for t_nome, df_t_val in tabelas_turnos.items():
                 elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
                 df_t_pdf = df_t_val.reset_index()
@@ -381,7 +387,6 @@ with tab2:
                 elements.append(t_turn)
                 elements.append(Spacer(1, 3))
             
-            # Adiciona a Tabela de Total Geral no PDF compactada
             elements.append(Paragraph("<b>Total Geral Consolidado</b>", section_style))
             df_pdf = df_geral_com_total.reset_index()
             if isinstance(nivel, list):
