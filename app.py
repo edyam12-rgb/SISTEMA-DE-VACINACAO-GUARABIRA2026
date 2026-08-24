@@ -143,18 +143,18 @@ if is_admin:
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# LISTA UNIFICADA E ORDENADA ALFABETICAMENTE (Com destaque visual nas de COVID)
+# LISTA UNIFICADA E ORDENADA PERFEITAMENTE EM ORDEM ALFABÉTICA (Incluindo PFIZER nas posições naturais P)
 lista_bruta = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", 
     "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", 
     "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", 
     "VIP", "VIT. A", "VSR GRAVIDA", 
-    "🦠 PFIZER ADULTO", "🦠 PFIZER PED 06 A 4 ANOS", "🦠 PFIZER PED. 05 A 11 ANOS"
+    "PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"
 ]
 lista_todas_vacinas = sorted(lista_bruta)
 
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
-lista_covid = ["🦠 PFIZER ADULTO", "🦠 PFIZER PED 06 A 4 ANOS", "🦠 PFIZER PED. 05 A 11 ANOS"]
+lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 
 if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "⚙️ Gerenciar Usuários"])
 else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
@@ -174,27 +174,27 @@ with tab1:
     dic_val = {v: 0 for v in lista_todas_vacinas}
     if not df_existente.empty: 
         for _, r in df_existente.iterrows(): 
-            # Normaliza caso o banco ainda não tenha o ícone
             v_nome = r["vacina"]
-            if v_nome in lista_covid and not v_nome.startswith("🦠"):
-                v_nome = f"🦠 {v_nome}"
             if v_nome in dic_val: 
                 dic_val[v_nome] = r["quantidade"]
-            elif r["vacina"] in dic_val:
-                dic_val[r["vacina"]] = r["quantidade"]
             
-    df_tela = pd.DataFrame({"VACINA (🦠 = COVID-19)": lista_todas_vacinas, "QUANTIDADE": [dic_val[v] for v in lista_todas_vacinas]})
+    # Adicionamos uma coluna indicadora visual na tela para destacar as de COVID sem atrapalhar a ordem alfabética
+    df_tela_aux = []
+    for v in lista_todas_vacinas:
+        tipo_label = "🦠 COVID-19" if v in lista_covid else "💉 Rotina"
+        df_tela_aux.append({"TIPO": tipo_label, "VACINA": v, "QUANTIDADE": dic_val[v]})
+        
+    df_tela = pd.DataFrame(df_tela_aux)
 
     editor_key = f"editor_unificado_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}"
-    df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
+    df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, disabled=["TIPO", "VACINA"], key=editor_key)
 
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
-    dict_tela = dict(zip(df_editado['VACINA (🦠 = COVID-19)'], df_editado['QUANTIDADE']))
+    dict_tela = dict(zip(df_editado['VACINA'], df_editado['QUANTIDADE']))
     
     tem_pendencia = False
     for vac, qtd_tela in dict_tela.items():
-        vac_limpa = vac.replace("🦠 ", "")
-        qtd_banco = dict_banco.get(vac, dict_banco.get(vac_limpa, 0))
+        qtd_banco = dict_banco.get(vac, 0)
         q_t = float(qtd_tela) if pd.notna(qtd_tela) else 0.0
         q_b = float(qtd_banco) if pd.notna(qtd_banco) else 0.0
         if q_t != q_b:
@@ -235,9 +235,7 @@ with tab1:
             with conn.session as s:
                 s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo})
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
-                    # Salva sem o emoji no banco para padronizar com os relatórios
-                    nome_vacina_salvar = row["VACINA (🦠 = COVID-19)"].replace("🦠 ", "")
-                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo, "vacina": nome_vacina_salvar, "quantidade": row["QUANTIDADE"]})
+                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
                 s.commit()
                 st.success("✅ Salvo com sucesso!")
                 st.rerun()
@@ -297,20 +295,16 @@ with tab2:
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
             
-            # Limpa vacinas covid puras para checagem de descontos
-            lista_covid_limpa = [v.replace("🦠 ", "") for v in lista_covid]
-            
             for v in lista_descontos:
                 if v not in tabela.columns: tabela[v] = 0
             
-            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid_lim)].groupby(nivel)['quantidade'].sum()
+            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel)['quantidade'].sum()
             soma_descontos = tabela[lista_descontos].sum(axis=1)
             df_geral = pd.DataFrame(index=tabela.index)
             df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
             for v in lista_descontos: df_geral[v] = tabela[v]
             
-            # Soma todas as colunas de covid presentes na tabela dinâmica
-            cols_covid_presentes = [c for c in tabela.columns if c in lista_covid_limpa]
+            cols_covid_presentes = [c for c in tabela.columns if c in lista_covid]
             df_geral['COVID'] = tabela[cols_covid_presentes].sum(axis=1) if cols_covid_presentes else 0
             
             df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
