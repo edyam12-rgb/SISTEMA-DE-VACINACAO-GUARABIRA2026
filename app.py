@@ -139,7 +139,6 @@ if is_admin:
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# LISTA ÚNICA UNIFICADA (ROTINA + COVID)
 lista_todas_vacinas = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", 
     "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", 
@@ -189,23 +188,26 @@ with tab1:
             break
 
     if tem_pendencia:
-        st.warning("⚠️ **ATENÇÃO:** Existem alterações não salvas neste turno/unidade. **Os seletores abaixo estão bloqueados** até que você clique em **'💾 Salvar Lançamento'**.")
+        st.warning("⚠️ **ATENÇÃO:** Existem alterações não salvas neste turno. **O seletor de turno está bloqueado** até que você clique em **'💾 Salvar Lançamento'**.")
 
     with st.form("form_seletor_turno"):
-        col1, col2, col3 = st.columns(3)
         if is_admin:
+            col1, col2, col3 = st.columns(3)
             f_distrito = col1.selectbox("Selecione o Distrito:", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(st.session_state.sel_distrito_ativo) if st.session_state.sel_distrito_ativo in ubs_por_distrito else 0, disabled=tem_pendencia)
             lista_ubs_disp = ubs_por_distrito.get(f_distrito, [])
             idx_ubs = lista_ubs_disp.index(st.session_state.sel_ubs_ativo) if st.session_state.sel_ubs_ativo in lista_ubs_disp else 0
             f_ubs = col2.selectbox("Selecione a UBS:", lista_ubs_disp, index=idx_ubs, disabled=tem_pendencia)
+            
+            lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+            f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
         else:
+            # Técnico vê apenas a sua unidade fixa e altera apenas o turno
             f_distrito = st.session_state.distrito_user
             f_ubs = st.session_state.ubs_user
-            col1.write(f"**Distrito:** {f_distrito}")
-            col2.write(f"**UBS:** {f_ubs}")
-
-        lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
-        f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
+            st.info(f"📍 **Unidade Fixa:** {f_ubs} ({f_distrito})")
+            
+            lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
+            f_turno = st.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
         
         btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia)
 
