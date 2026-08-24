@@ -272,6 +272,13 @@ with tab2:
                 if not df_t.empty:
                     cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
                     cons['TOTAL'] = cons.sum(axis=1)
+                    
+                    # Adiciona a linha de Soma dos Distritos/Turno se o modo for por UBS
+                    if modo == "Estabelecimento (UBS)":
+                        soma_distrito = cons.groupby(level=0).sum()
+                        soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
+                        cons = pd.concat([cons, soma_distrito]).sort_index()
+                    
                     tabelas_turnos[t] = cons
                     st.markdown(f"#### ⏰ {t}")
                     st.dataframe(cons, use_container_width=True)
@@ -288,6 +295,11 @@ with tab2:
             df_geral['COVID'] = df_banco[df_banco['vacina'].isin(lista_covid)].groupby(nivel)['quantidade'].sum().reindex(df_geral.index).fillna(0)
             df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
             
+            if modo == "Estabelecimento (UBS)":
+                soma_geral_distrito = df_geral.groupby(level=0).sum()
+                soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
+                df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
+
             df_geral_com_total = pd.concat([df_geral, df_geral.sum(numeric_only=True).to_frame().T.rename(index={0: 'TOTAL FINAL'})])
             st.markdown("### 🏁 Total Geral")
             st.dataframe(df_geral_com_total, use_container_width=True)
@@ -316,7 +328,6 @@ with tab2:
             
             # 2. Download PDF (Compactado para caber em 1 única página)
             buffer_pdf = io.BytesIO()
-            # Margens menores (15 pontos) para aproveitar todo o espaço da folha paisagem
             doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
             elements = []
             styles = getSampleStyleSheet()
@@ -342,11 +353,16 @@ with tab2:
             elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
             elements.append(Spacer(1, 2))
             
-            # Adiciona as tabelas por Turno no PDF com fonte menor
+            # Adiciona as tabelas por Turno no PDF com subtotais por distrito
             for t_nome, df_t_val in tabelas_turnos.items():
                 elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
                 df_t_pdf = df_t_val.reset_index()
-                df_t_pdf.columns.values[0] = modo
+                if isinstance(nivel, list):
+                    df_t_pdf.columns.values[0] = "Distrito"
+                    df_t_pdf.columns.values[1] = "UBS"
+                else:
+                    df_t_pdf.columns.values[0] = "Distrito"
+                
                 table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
                 
                 t_turn = Table(table_data_t)
@@ -368,7 +384,12 @@ with tab2:
             # Adiciona a Tabela de Total Geral no PDF compactada
             elements.append(Paragraph("<b>Total Geral Consolidado</b>", section_style))
             df_pdf = df_geral_com_total.reset_index()
-            df_pdf.columns.values[0] = modo
+            if isinstance(nivel, list):
+                df_pdf.columns.values[0] = "Distrito"
+                df_pdf.columns.values[1] = "UBS"
+            else:
+                df_pdf.columns.values[0] = "Distrito"
+
             table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
             
             t = Table(table_data)
