@@ -204,7 +204,6 @@ with tab1:
         st.warning("⚠️ **ATENÇÃO:** Existem alterações não salvas neste turno. **O seletor de turno está bloqueado** até que você clique em **'💾 Salvar Lançamento'**.")
 
     with st.form("form_seletor_turno"):
-        # Turnos atualizados solicitados
         lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 16h)"]
         
         if is_admin:
