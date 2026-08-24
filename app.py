@@ -167,6 +167,10 @@ with tab1:
     if "sel_turno_ativo" not in st.session_state:
         st.session_state.sel_turno_ativo = "Manhã (até as 11h)"
 
+    # --- INDICADOR VISUAL CLARO DO TURNO ATIVO NO ALTO DA TELA ---
+    unidade_atual_txt = f"**UBS:** {st.session_state.sel_ubs_ativo} ({st.session_state.sel_distrito_ativo})" if is_admin else f"**UBS:** {st.session_state.ubs_user} ({st.session_state.distrito_user})"
+    st.info(f"🕒 **TURNO ATIVO ATUAL:** `{st.session_state.sel_turno_ativo}`  |  📍 {unidade_atual_txt}")
+
     try:
         df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.sel_distrito_ativo, "u": st.session_state.sel_ubs_ativo, "t": st.session_state.sel_turno_ativo}, ttl=0)
     except: df_existente = pd.DataFrame()
