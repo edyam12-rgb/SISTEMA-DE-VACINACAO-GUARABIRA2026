@@ -139,9 +139,17 @@ if is_admin:
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-lista_rotina = ["ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", "VIP", "VIT. A", "VSR GRAVIDA"]
-lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
+# LISTA ÚNICA UNIFICADA (ROTINA + COVID)
+lista_todas_vacinas = [
+    "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", 
+    "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", 
+    "PNEUMO 20", "ROTAVIRUS", "T. VIRAL", "T. VIRAL 2ª DOSE", "TETRA", "VARICELA", 
+    "VIP", "VIT. A", "VSR GRAVIDA", 
+    "PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"
+]
+
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
+lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 
 if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "⚙️ Gerenciar Usuários"])
 else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
@@ -153,27 +161,19 @@ with tab1:
         st.session_state.sel_ubs_ativo = ubs_por_distrito.get(st.session_state.sel_distrito_ativo, [""])[0] if is_admin else st.session_state.ubs_user
     if "sel_turno_ativo" not in st.session_state:
         st.session_state.sel_turno_ativo = "Manhã (até as 11h)"
-    if "sel_cat_ativo" not in st.session_state:
-        st.session_state.sel_cat_ativo = "💉 Vacinas de Rotina"
 
     try:
         df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.sel_distrito_ativo, "u": st.session_state.sel_ubs_ativo, "t": st.session_state.sel_turno_ativo}, ttl=0)
     except: df_existente = pd.DataFrame()
 
-    if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina":
-        dic_val = {v: 0 for v in lista_rotina}
-        if not df_existente.empty: 
-            for _, r in df_existente.iterrows(): 
-                if r["vacina"] in dic_val: dic_val[r["vacina"]] = r["quantidade"]
-        df_tela = pd.DataFrame({"VACINA": lista_rotina, "QUANTIDADE": [dic_val[v] for v in lista_rotina]})
-    else:
-        dic_val = {v: 0 for v in lista_covid}
-        if not df_existente.empty: 
-            for _, r in df_existente.iterrows(): 
-                if r["vacina"] in dic_val: dic_val[r["vacina"]] = r["quantidade"]
-        df_tela = pd.DataFrame({"VACINA": lista_covid, "QUANTIDADE": [dic_val[v] for v in lista_covid]})
+    dic_val = {v: 0 for v in lista_todas_vacinas}
+    if not df_existente.empty: 
+        for _, r in df_existente.iterrows(): 
+            if r["vacina"] in dic_val: dic_val[r["vacina"]] = r["quantidade"]
+            
+    df_tela = pd.DataFrame({"VACINA": lista_todas_vacinas, "QUANTIDADE": [dic_val[v] for v in lista_todas_vacinas]})
 
-    editor_key = f"editor_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}_{st.session_state.sel_cat_ativo}"
+    editor_key = f"editor_unificado_{st.session_state.sel_distrito_ativo}_{st.session_state.sel_ubs_ativo}_{st.session_state.sel_turno_ativo}"
     df_editado = st.data_editor(df_tela, hide_index=True, use_container_width=True, key=editor_key)
 
     dict_banco = dict(zip(df_existente['vacina'], df_existente['quantidade'])) if not df_existente.empty else {}
@@ -207,15 +207,12 @@ with tab1:
         lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
         f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
         
-        f_cat = st.radio("Grupo:", ["💉 Vacinas de Rotina", "🦠 Vacinas COVID-19"], horizontal=True, index=0 if st.session_state.sel_cat_ativo == "💉 Vacinas de Rotina" else 1, disabled=tem_pendencia)
-        
         btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia)
 
     if not tem_pendencia and btn_trocar:
         st.session_state.sel_distrito_ativo = f_distrito
         st.session_state.sel_ubs_ativo = f_ubs
         st.session_state.sel_turno_ativo = f_turno
-        st.session_state.sel_cat_ativo = f_cat
         st.rerun()
 
     if st.button("💾 Salvar Lançamento", type="primary"):
