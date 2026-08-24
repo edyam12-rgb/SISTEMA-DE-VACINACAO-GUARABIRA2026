@@ -3,6 +3,10 @@ import pandas as pd
 from sqlalchemy import text
 import io
 import hashlib
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
 # Configuração da página
 st.set_page_config(page_title="Sistema de Lançamento de Vacinas - Dia D", layout="wide")
@@ -201,7 +205,6 @@ with tab1:
             lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
             f_turno = col3.selectbox("Selecione o Turno:", lista_turnos_opt, index=lista_turnos_opt.index(st.session_state.sel_turno_ativo), disabled=tem_pendencia)
         else:
-            # Técnico vê apenas a sua unidade fixa e altera apenas o turno
             f_distrito = st.session_state.distrito_user
             f_ubs = st.session_state.ubs_user
             st.info(f"📍 **Unidade Fixa:** {f_ubs} ({f_distrito})")
@@ -280,15 +283,81 @@ with tab2:
             for v in lista_descontos: df_geral[v] = tabela[v]
             df_geral['COVID'] = df_banco[df_banco['vacina'].isin(lista_covid)].groupby(nivel)['quantidade'].sum().reindex(df_geral.index).fillna(0)
             df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
+            
+            df_geral_com_total = pd.concat([df_geral, df_geral.sum(numeric_only=True).to_frame().T.rename(index={0: 'TOTAL FINAL'})])
             st.markdown("### 🏁 Total Geral")
-            st.dataframe(pd.concat([df_geral, df_geral.sum(numeric_only=True).to_frame().T.rename(index={0: 'TOTAL FINAL'})]), use_container_width=True)
+            st.dataframe(df_geral_com_total, use_container_width=True)
             
             st.markdown("---")
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_geral.to_excel(writer, sheet_name='TOTAL_GERAL')
+            
+            # --- GERAÇÃO DOS ARQUIVOS DE DOWNLOAD (EXCEL E PDF) ---
+            col_d1, col_d2 = st.columns(2)
+            
+            # 1. Download Excel
+            buffer_xlsx = io.BytesIO()
+            with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
+                df_geral_com_total.to_excel(writer, sheet_name='TOTAL_GERAL')
                 df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
-            st.download_button("📥 Baixar Planilha Consolidada", data=buffer.getvalue(), file_name="Relatorio_Final.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            col_d1.download_button(
+                "📥 Baixar Planilha Consolidada (Excel)", 
+                data=buffer_xlsx.getvalue(), 
+                file_name="Relatorio_Final.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+            # 2. Download PDF
+            buffer_pdf = io.BytesIO()
+            doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+            elements = []
+            styles = getSampleStyleSheet()
+            
+            title_style = ParagraphStyle(
+                'TitleStyle',
+                parent=styles['Heading1'],
+                fontSize=16,
+                textColor=colors.HexColor('#1f77b4'),
+                alignment=1, # Centralizado
+                spaceAfter=15
+            )
+            
+            elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
+            elements.append(Spacer(1, 10))
+            
+            # Converte o DataFrame para formato de tabela do ReportLab
+            df_pdf = df_geral_com_total.reset_index()
+            # Ajusta nome da coluna de índice
+            df_pdf.columns.values[0] = modo
+            
+            table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
+            
+            t = Table(table_data)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,0), 8),
+                ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('FONTSIZE', (0,1), (-1,-1), 7),
+                ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')), # Destaque linha final
+                ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ]))
+            
+            elements.append(t)
+            doc.build(elements)
+            
+            col_d2.download_button(
+                "📥 Baixar Relatório em PDF", 
+                data=buffer_pdf.getvalue(), 
+                file_name="Relatorio_Final.pdf", 
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
         else:
             st.info("👈 Nenhum dado registrado no banco de dados ainda.")
     else: 
