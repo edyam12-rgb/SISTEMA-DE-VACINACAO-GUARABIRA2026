@@ -264,7 +264,6 @@ with tab2:
             nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
             lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
-            # Dicionário para guardar as tabelas geradas por turno (para usar na tela e no PDF)
             tabelas_turnos = {}
             turnos_lista = ["Manhã (até as 11h)", "Tarde (das 11h às 15h)", "Tarde (das 15h às 16h)"]
             
@@ -302,7 +301,6 @@ with tab2:
             buffer_xlsx = io.BytesIO()
             with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
                 for t_nome, df_t_val in tabelas_turnos.items():
-                    # Nome seguro para a aba do Excel (limita caracteres especiais se necessário)
                     sheet_name = t_nome.replace("(", "").replace(")", "").replace(" ", "_")[:31]
                     df_t_val.to_excel(writer, sheet_name=sheet_name)
                 df_geral_com_total.to_excel(writer, sheet_name='TOTAL_GERAL')
@@ -316,34 +314,35 @@ with tab2:
                 use_container_width=True
             )
             
-            # 2. Download PDF (Incluindo Turnos e Total Geral)
+            # 2. Download PDF (Compactado para caber em 1 única página)
             buffer_pdf = io.BytesIO()
-            doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+            # Margens menores (15 pontos) para aproveitar todo o espaço da folha paisagem
+            doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
             elements = []
             styles = getSampleStyleSheet()
             
             title_style = ParagraphStyle(
                 'TitleStyle',
                 parent=styles['Heading1'],
-                fontSize=15,
+                fontSize=13,
                 textColor=colors.HexColor('#1f77b4'),
                 alignment=1,
-                spaceAfter=12
+                spaceAfter=6
             )
             
             section_style = ParagraphStyle(
                 'SectionStyle',
                 parent=styles['Heading2'],
-                fontSize=12,
+                fontSize=9,
                 textColor=colors.HexColor('#333333'),
-                spaceBefore=10,
-                spaceAfter=6
+                spaceBefore=4,
+                spaceAfter=2
             )
             
             elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
-            elements.append(Spacer(1, 5))
+            elements.append(Spacer(1, 2))
             
-            # Adiciona as tabelas por Turno no PDF
+            # Adiciona as tabelas por Turno no PDF com fonte menor
             for t_nome, df_t_val in tabelas_turnos.items():
                 elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
                 df_t_pdf = df_t_val.reset_index()
@@ -356,16 +355,17 @@ with tab2:
                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                     ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0,0), (-1,0), 8),
-                    ('BOTTOMPADDING', (0,0), (-1,0), 4),
+                    ('FONTSIZE', (0,0), (-1,0), 6),
+                    ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                    ('TOPPADDING', (0,0), (-1,0), 2),
                     ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
                     ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                    ('FONTSIZE', (0,1), (-1,-1), 7),
+                    ('FONTSIZE', (0,1), (-1,-1), 6),
                 ]))
                 elements.append(t_turn)
-                elements.append(Spacer(1, 8))
+                elements.append(Spacer(1, 3))
             
-            # Adiciona a Tabela de Total Geral no PDF
+            # Adiciona a Tabela de Total Geral no PDF compactada
             elements.append(Paragraph("<b>Total Geral Consolidado</b>", section_style))
             df_pdf = df_geral_com_total.reset_index()
             df_pdf.columns.values[0] = modo
@@ -377,11 +377,12 @@ with tab2:
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0,0), (-1,0), 8),
-                ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                ('FONTSIZE', (0,0), (-1,0), 6),
+                ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                ('TOPPADDING', (0,0), (-1,0), 2),
                 ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                ('FONTSIZE', (0,1), (-1,-1), 7),
+                ('FONTSIZE', (0,1), (-1,-1), 6),
                 ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
                 ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
             ]))
