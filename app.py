@@ -15,7 +15,8 @@ st.set_page_config(page_title="Sistema de Lançamento de Vacinas - Dia D", layou
 try:
     conn = st.connection("postgresql", type="sql")
 except Exception as e:
-    st.error("Erro ao configurar a conexão com o banco de dados.")
+    st.error(f"Erro ao configurar a conexão com o banco de dados: {e}")
+    conn = None
 
 ubs_por_distrito = {
     "Distrito 1": ["Alto", "Bairro Novo I", "Bairro Novo II", "Cordeiro", "Primavera"],
@@ -26,6 +27,8 @@ ubs_por_distrito = {
 
 # --- FUNÇÃO PARA CRIAR OU ATUALIZAR A TABELA DE USUÁRIOS NO BANCO ---
 def inicializar_tabela_usuarios():
+    if conn is None:
+        return
     try:
         with conn.session as s:
             s.execute(text("""
@@ -138,8 +141,10 @@ if is_admin:
                         s.commit()
                     st.sidebar.success(f"Usuário '{novo_user}' cadastrado com sucesso!")
                     st.rerun()
-                except Exception as e: st.sidebar.error("Erro ao cadastrar (usuário já existe?).")
-            else: st.sidebar.warning("Preencha todos os campos.")
+                except Exception as e: 
+                    st.sidebar.error("Erro ao cadastrar (usuário já existe?).")
+            else: 
+                st.sidebar.warning("Preencha todos os campos.")
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
@@ -156,8 +161,10 @@ lista_todas_vacinas = sorted(lista_bruta)
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 
-if is_admin: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "⚙️ Gerenciar Usuários"])
-else: tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
+if is_admin: 
+    tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "⚙️ Gerenciar Usuários"])
+else: 
+    tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
     if "sel_distrito_ativo" not in st.session_state:
@@ -167,13 +174,13 @@ with tab1:
     if "sel_turno_ativo" not in st.session_state:
         st.session_state.sel_turno_ativo = "Manhã (até as 11h)"
 
-    # --- INDICADOR VISUAL CLARO DO TURNO ATIVO NO ALTO DA TELA ---
     unidade_atual_txt = f"**UBS:** {st.session_state.sel_ubs_ativo} ({st.session_state.sel_distrito_ativo})" if is_admin else f"**UBS:** {st.session_state.ubs_user} ({st.session_state.distrito_user})"
     st.info(f"🕒 **TURNO ATIVO ATUAL:** `{st.session_state.sel_turno_ativo}`  |  📍 {unidade_atual_txt}")
 
     try:
         df_existente = conn.query("SELECT vacina, quantidade FROM registros_vacinacao WHERE distrito = :d AND unidade_saude = :u AND turno = :t", params={"d": st.session_state.sel_distrito_ativo, "u": st.session_state.sel_ubs_ativo, "t": st.session_state.sel_turno_ativo}, ttl=0)
-    except: df_existente = pd.DataFrame()
+    except: 
+        df_existente = pd.DataFrame()
 
     dic_val = {v: 0 for v in lista_todas_vacinas}
     if not df_existente.empty: 
@@ -244,7 +251,8 @@ with tab1:
                 s.commit()
                 st.success("✅ Salvo com sucesso!")
                 st.rerun()
-        except Exception as e: st.error(f"Erro ao salvar: {e}")
+        except Exception as e: 
+            st.error(f"Erro ao salvar: {e}")
 
 with tab2:
     if is_admin:
@@ -270,8 +278,10 @@ with tab2:
                 else:
                     st.error("Marque a caixa de confirmação para poder apagar os dados.")
         
-        try: df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
-        except: df_banco = pd.DataFrame()
+        try: 
+            df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
+        except: 
+            df_banco = pd.DataFrame()
 
         if not df_banco.empty:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
@@ -301,13 +311,15 @@ with tab2:
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
             
             for v in lista_descontos:
-                if v not in tabela.columns: tabela[v] = 0
+                if v not in tabela.columns: 
+                    tabela[v] = 0
             
             rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel)['quantidade'].sum()
             soma_descontos = tabela[lista_descontos].sum(axis=1)
             df_geral = pd.DataFrame(index=tabela.index)
             df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
-            for v in lista_descontos: df_geral[v] = tabela[v]
+            for v in lista_descontos: 
+                df_geral[v] = tabela[v]
             
             cols_covid_presentes = [c for c in tabela.columns if c in lista_covid]
             df_geral['COVID'] = tabela[cols_covid_presentes].sum(axis=1) if cols_covid_presentes else 0
@@ -331,10 +343,8 @@ with tab2:
             
             st.markdown("---")
             
-            # --- GERAÇÃO DOS ARQUIVOS DE DOWNLOAD (EXCEL E PDF) ---
             col_d1, col_d2 = st.columns(2)
             
-            # 1. Download Excel
             buffer_xlsx = io.BytesIO()
             with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
                 for t_nome, df_t_val in tabelas_turnos.items():
@@ -351,7 +361,6 @@ with tab2:
                 use_container_width=True
             )
             
-            # 2. Download PDF (Compactado para caber em 1 única página)
             buffer_pdf = io.BytesIO()
             doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
             elements = []
