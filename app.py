@@ -4,6 +4,7 @@ from sqlalchemy import text
 import io
 import hashlib
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -170,8 +171,11 @@ else:
 
 with tab1:
     def obter_turno_automatico():
-        hora_atual = datetime.now().hour
-        return "Manhã (até as 11h)" if hora_atual < 11 else "Tarde (das 11h às 16h)"
+        try:
+            hora_local = datetime.now(ZoneInfo("America/Fortaleza")).hour
+        except Exception:
+            hora_local = datetime.now().hour
+        return "Manhã (até as 11h)" if hora_local < 11 else "Tarde (das 11h às 16h)"
 
     if not is_admin:
         st.session_state.sel_turno_ativo = obter_turno_automatico()
@@ -529,3 +533,4 @@ with tab3:
             st.info("Nenhum usuário cadastrado.")
     else:
         st.warning("🔒 Acesso restrito apenas para administradores.")
+
