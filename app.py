@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 import io
 import hashlib
+from datetime import datetime
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -167,12 +168,22 @@ else:
     tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
+    # Função para determinar o turno automaticamente com base no horário (antes das 11h = Manhã, senão Tarde)
+    def obter_turno_automatico():
+        hora_atual = datetime.now().hour
+        return "Manhã (até as 11h)" if hora_atual < 11 else "Tarde (das 11h às 16h)"
+
+    # Se for Técnico, o turno é sempre automático pelo horário. Se for Admin, assume o automático se não houver definição prévia.
+    if not is_admin:
+        st.session_state.sel_turno_ativo = obter_turno_automatico()
+    else:
+        if "sel_turno_ativo" not in st.session_state:
+            st.session_state.sel_turno_ativo = obter_turno_automatico()
+
     if "sel_distrito_ativo" not in st.session_state:
         st.session_state.sel_distrito_ativo = list(ubs_por_distrito.keys())[0] if is_admin else st.session_state.distrito_user
     if "sel_ubs_ativo" not in st.session_state:
         st.session_state.sel_ubs_ativo = ubs_por_distrito.get(st.session_state.sel_distrito_ativo, [""])[0] if is_admin else st.session_state.ubs_user
-    if "sel_turno_ativo" not in st.session_state:
-        st.session_state.sel_turno_ativo = "Manhã (até as 11h)"
 
     unidade_atual_txt = f"**UBS:** {st.session_state.sel_ubs_ativo} ({st.session_state.sel_distrito_ativo})" if is_admin else f"**UBS:** {st.session_state.ubs_user} ({st.session_state.distrito_user})"
     st.info(f"🕒 **TURNO ATIVO ATUAL:** `{st.session_state.sel_turno_ativo}`  |  📍 {unidade_atual_txt}")
@@ -232,11 +243,11 @@ with tab1:
             st.info(f"📍 **Unidade Fixa:** {f_ubs} ({f_distrito})")
             
             idx_turno = lista_turnos_opt.index(st.session_state.sel_turno_ativo) if st.session_state.sel_turno_ativo in lista_turnos_opt else 0
-            f_turno = st.selectbox("Selecione o Turno:", lista_turnos_opt, index=idx_turno, disabled=tem_pendencia)
+            f_turno = st.selectbox("Selecione o Turno (Automático pelo Horário):", lista_turnos_opt, index=idx_turno, disabled=True)
         
-        btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia)
+        btn_trocar = st.form_submit_button("🔄 Alterar Turno / Unidade", disabled=tem_pendencia if is_admin else True)
 
-    if not tem_pendencia and btn_trocar:
+    if is_admin and not tem_pendencia and btn_trocar:
         st.session_state.sel_distrito_ativo = f_distrito
         st.session_state.sel_ubs_ativo = f_ubs
         st.session_state.sel_turno_ativo = f_turno
