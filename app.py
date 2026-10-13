@@ -266,4 +266,266 @@ with tab1:
 
 with tab2:
     if is_admin:
-        st.markdown("### 📊 Painel de Relatório
+        st.markdown("### 📊 Painel de Relatório Consolidado")
+        
+        col_btn1, col_btn2 = st.columns([2, 5])
+        if col_btn1.button("🔄 Atualizar Relatório", type="secondary"):
+            st.rerun()
+
+        with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
+            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
+            confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.", key="chk_limpar_banco")
+            if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
+                if confirmacao:
+                    try:
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM registros_vacinacao"))
+                            s.commit()
+                        st.success("🗑️ Banco de dados limpo com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao limpar banco: {e}")
+                else:
+                    st.error("Marque a caixa de confirmação para poder apagar os dados.")
+        
+        try: 
+            df_banco = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
+        except: 
+            df_banco = pd.DataFrame()
+
+        if not df_banco.empty:
+            df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
+            modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
+            nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
+            lista_nivel = [nivel] if isinstance(nivel, str) else nivel
+            
+            tabelas_turnos = {}
+            turnos_lista = ["Manhã (até as 11h)", "Tarde (das 11h às 16h)"]
+            
+            for t in turnos_lista:
+                df_t = df_banco[df_banco['turno'] == t]
+                if not df_t.empty:
+                    cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                    cons['TOTAL'] = cons.sum(axis=1)
+                    
+                    if modo == "Estabelecimento (UBS)":
+                        soma_distrito = cons.groupby(level=0).sum()
+                        soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
+                        cons = pd.concat([cons, soma_distrito]).sort_index()
+                    
+                    tabelas_turnos[t] = cons
+                    st.markdown(f"#### ⏰ {t}")
+                    st.dataframe(cons, use_container_width=True)
+            
+            df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
+            tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
+            
+            for v in lista_descontos:
+                if v not in tabela.columns: 
+                    tabela[v] = 0
+            
+            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel)['quantidade'].sum()
+            soma_descontos = tabela[lista_descontos].sum(axis=1)
+            df_geral = pd.DataFrame(index=tabela.index)
+            df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
+            for v in lista_descontos: 
+                df_geral[v] = tabela[v]
+            
+            cols_covid_presentes = [c for c in tabela.columns if c in lista_covid]
+            df_geral['COVID'] = tabela[cols_covid_presentes].sum(axis=1) if cols_covid_presentes else 0
+            
+            df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
+            
+            if modo == "Estabelecimento (UBS)":
+                soma_geral_distrito = df_geral.groupby(level=0).sum()
+                soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
+                df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
+
+            if isinstance(nivel, list):
+                linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
+                total_final_serie = df_geral.loc[linhas_ubs].sum(numeric_only=True)
+            else:
+                total_final_serie = df_geral.sum(numeric_only=True)
+
+            df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
+            st.markdown("### 🏁 Total Geral")
+            st.dataframe(df_geral_com_total, use_container_width=True)
+            
+            st.markdown("---")
+            
+            col_d1, col_d2 = st.columns(2)
+            
+            buffer_xlsx = io.BytesIO()
+            with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
+                for t_nome, df_t_val in tabelas_turnos.items():
+                    sheet_name = t_nome.replace("(", "").replace(")", "").replace(" ", "_")[:31]
+                    df_t_val.to_excel(writer, sheet_name=sheet_name)
+                df_geral_com_total.to_excel(writer, sheet_name='TOTAL_GERAL')
+                df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
+            
+            col_d1.download_button(
+                "📥 Baixar Planilha Consolidada (Excel)", 
+                data=buffer_xlsx.getvalue(), 
+                file_name="Relatorio_Final.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            
+            buffer_pdf = io.BytesIO()
+            doc = SimpleDocTemplate(buffer_pdf, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
+            elements = []
+            styles = getSampleStyleSheet()
+            
+            title_style = ParagraphStyle(
+                'TitleStyle',
+                parent=styles['Heading1'],
+                fontSize=13,
+                textColor=colors.HexColor('#1f77b4'),
+                alignment=1,
+                spaceAfter=6
+            )
+            
+            section_style = ParagraphStyle(
+                'SectionStyle',
+                parent=styles['Heading2'],
+                fontSize=9,
+                textColor=colors.HexColor('#333333'),
+                spaceBefore=4,
+                spaceAfter=2
+            )
+            
+            elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
+            elements.append(Spacer(1, 2))
+            
+            for t_nome, df_t_val in tabelas_turnos.items():
+                elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                df_t_pdf = df_t_val.reset_index()
+                if isinstance(nivel, list):
+                    df_t_pdf.columns.values[0] = "Distrito"
+                    df_t_pdf.columns.values[1] = "UBS"
+                else:
+                    df_t_pdf.columns.values[0] = "Distrito"
+                
+                table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
+                
+                t_turn = Table(table_data_t)
+                t_turn.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,0), 6),
+                    ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                    ('TOPPADDING', (0,0), (-1,0), 2),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('FONTSIZE', (0,1), (-1,-1), 6),
+                ]))
+                elements.append(t_turn)
+                elements.append(Spacer(1, 3))
+            
+            elements.append(Paragraph("<b>Total Geral Consolidado</b>", section_style))
+            df_pdf = df_geral_com_total.reset_index()
+            if isinstance(nivel, list):
+                df_pdf.columns.values[0] = "Distrito"
+                df_pdf.columns.values[1] = "UBS"
+            else:
+                df_pdf.columns.values[0] = "Distrito"
+
+            table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
+            
+            t = Table(table_data)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ca02c')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,0), 6),
+                ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                ('TOPPADDING', (0,0), (-1,0), 2),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('FONTSIZE', (0,1), (-1,-1), 6),
+                ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
+                ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ]))
+            
+            elements.append(t)
+            doc.build(elements)
+            
+            col_d2.download_button(
+                "📥 Baixar Relatório em PDF", 
+                data=buffer_pdf.getvalue(), 
+                file_name="Relatorio_Final.pdf", 
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+        else:
+            st.info("👈 Nenhum dado registrado no banco de dados ainda.")
+    else: 
+        st.warning("🔒 Acesso restrito apenas para administradores.")
+
+with tab3:
+    if is_admin:
+        st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
+        try:
+            df_usuarios = conn.query("SELECT id, username, perfil, distrito, ubs FROM usuarios ORDER BY id", ttl=0)
+        except:
+            df_usuarios = pd.DataFrame()
+            
+        if not df_usuarios.empty:
+            st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.markdown("#### ⚙️ Alterar Perfil ou Excluir Usuário")
+            
+            usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist())
+            user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
+            
+            with st.form("form_edicao_usuario"):
+                novo_perfil_edit = st.selectbox("Alterar Perfil", ["Técnico", "Administrador"], index=0 if user_info["perfil"] == "Técnico" else 1)
+                
+                edit_distrito = user_info["distrito"] if user_info["distrito"] else "Geral"
+                edit_ubs = user_info["ubs"] if user_info["ubs"] else "Geral"
+                
+                if novo_perfil_edit == "Técnico":
+                    edit_distrito = st.selectbox("Distrito", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(edit_distrito) if edit_distrito in ubs_por_distrito else 0)
+                    edit_ubs = st.selectbox("UBS", ubs_por_distrito.get(edit_distrito, []), index=0)
+                else:
+                    edit_distrito = "Geral"
+                    edit_ubs = "Geral"
+                
+                col1, col2 = st.columns(2)
+                atualizar = col1.form_submit_button("🔄 Atualizar Dados")
+                excluir = col2.form_submit_button("🗑️ Excluir Usuário", type="primary")
+                
+                if atualizar:
+                    try:
+                        with conn.session as s:
+                            s.execute(
+                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
+                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
+                            )
+                            s.commit()
+                        st.success(f"✅ Usuário '{usuario_selecionado}' atualizado com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar: {e}")
+                        
+                if excluir:
+                    if usuario_selecionado == "admin":
+                        st.error("⚠️ O usuário principal 'admin' não pode ser excluído!")
+                    else:
+                        try:
+                            with conn.session as s:
+                                s.execute(text("DELETE FROM usuarios WHERE username = :u"), {"u": usuario_selecionado})
+                                s.commit()
+                            st.success(f"🗑️ Usuário '{usuario_selecionado}' excluído com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao excluir: {e}")
+        else:
+            st.info("Nenhum usuário cadastrado.")
+    else:
+        st.warning("🔒 Acesso restrito apenas para administradores.")
