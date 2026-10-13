@@ -127,8 +127,10 @@ if is_admin:
         cad_distrito = "Geral"
         cad_ubs = "Geral"
         if novo_perfil == "Técnico":
+            # Usando on_change para forçar a atualização imediata das UBS ao mudar o distrito
             cad_distrito = st.selectbox("Distrito do Técnico", list(ubs_por_distrito.keys()), key="cad_dist")
-            cad_ubs = st.selectbox("UBS do Técnico", ubs_por_distrito.get(cad_distrito, []), key="cad_ubs_loc")
+            ubs_disponiveis = ubs_por_distrito.get(cad_distrito, [])
+            cad_ubs = st.selectbox("UBS do Técnico", ubs_disponiveis, key="cad_ubs_loc")
 
         if st.button("💾 Cadastrar Usuário"):
             if novo_user and nova_senha:
@@ -168,12 +170,10 @@ else:
     tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
-    # Função para determinar o turno automaticamente com base no horário (antes das 11h = Manhã, senão Tarde)
     def obter_turno_automatico():
         hora_atual = datetime.now().hour
         return "Manhã (até as 11h)" if hora_atual < 11 else "Tarde (das 11h às 16h)"
 
-    # Se for Técnico, o turno é sempre automático pelo horário. Se for Admin, assume o automático se não houver definição prévia.
     if not is_admin:
         st.session_state.sel_turno_ativo = obter_turno_automatico()
     else:
