@@ -472,4 +472,154 @@ with tab2:
                 fontSize=9,
                 textColor=colors.HexColor('#333333'),
                 spaceBefore=4,
-                space
+                spaceAfter=2
+            )
+            
+            elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
+            elements.append(Spacer(1, 2))
+            
+            for t_nome, df_t_val in tabelas_turnos.items():
+                elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                df_t_pdf = df_t_val.reset_index()
+                if isinstance(nivel, list):
+                    df_t_pdf.columns.values[0] = "Distrito"
+                    df_t_pdf.columns.values[1] = "UBS"
+                else:
+                    df_t_pdf.columns.values[0] = "Distrito"
+                
+                table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
+                
+                t_turn = Table(table_data_t)
+                t_turn.setStyle(TableStyle([
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,0), 6),
+                    ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                    ('TOPPADDING', (0,0), (-1,0), 2),
+                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('FONTSIZE', (0,1), (-1,-1), 6),
+                ]))
+                elements.append(t_turn)
+                elements.append(Spacer(1, 3))
+            
+            elements.append(Paragraph("<b>Total Geral Consolidado</b>", section_style))
+            df_pdf = df_geral_com_total.reset_index()
+            if isinstance(nivel, list):
+                df_pdf.columns.values[0] = "Distrito"
+                df_pdf.columns.values[1] = "UBS"
+            else:
+                df_pdf.columns.values[0] = "Distrito"
+
+            table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
+            
+            t = Table(table_data)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ca02c')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,0), 6),
+                ('BOTTOMPADDING', (0,0), (-1,0), 2),
+                ('TOPPADDING', (0,0), (-1,0), 2),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                ('FONTSIZE', (0,1), (-1,-1), 6),
+                ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
+                ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ]))
+            
+            elements.append(t)
+            doc.build(elements)
+            
+            col_d2.download_button(
+                "📥 Baixar Relatório em PDF", 
+                data=buffer_pdf.getvalue(), 
+                file_name="Relatorio_Final.pdf", 
+                mime="application/pdf",
+                use_container_width=True
+            )
+            
+        else:
+            st.info("👈 Nenhum dado registrado no banco de dados ainda.")
+    else: 
+        st.warning("🔒 Acesso restrito apenas para administradores.")
+
+with tab3:
+    if is_admin:
+        st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
+        try:
+            df_usuarios = conn.query("SELECT id, username, perfil, distrito, ubs FROM usuarios ORDER BY id", ttl=0)
+        except:
+            df_usuarios = pd.DataFrame()
+            
+        if not df_usuarios.empty:
+            st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.markdown("#### ⚙️ Alterar Perfil, Unidade ou Senha do Usuário")
+            
+            usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist(), key="sel_user_edicao")
+            user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
+            
+            current_perfil = user_info["perfil"]
+            idx_perfil = 0 if current_perfil == "Técnico" else 1
+            
+            novo_perfil_edit = st.selectbox("Alterar Perfil", ["Técnico", "Administrador"], index=idx_perfil, key=f"perfil_{usuario_selecionado}")
+            
+            edit_distrito = "Geral"
+            edit_ubs = "Geral"
+            
+            if novo_perfil_edit == "Técnico":
+                db_dist = user_info["distrito"] if user_info["distrito"] in ubs_por_distrito else list(ubs_por_distrito.keys())[0]
+                idx_dist = list(ubs_por_distrito.keys()).index(db_dist)
+                
+                edit_distrito = st.selectbox("Distrito", list(ubs_por_distrito.keys()), index=idx_dist, key=f"dist_{usuario_selecionado}")
+                
+                ubs_list = ubs_por_distrito.get(edit_distrito, [])
+                db_ubs = user_info["ubs"] if user_info["ubs"] in ubs_list else ubs_list[0]
+                idx_ubs = ubs_list.index(db_ubs) if db_ubs in ubs_list else 0
+                
+                edit_ubs = st.selectbox("UBS", ubs_list, index=idx_ubs, key=f"ubs_{usuario_selecionado}")
+            
+            nova_senha_admin = st.text_input("Nova Senha (opcional - deixe em branco para não alterar)", type="password", key=f"nova_senha_adm_{usuario_selecionado}")
+
+            col1, col2 = st.columns(2)
+            if col1.button("🔄 Atualizar Dados", key=f"btn_atualizar_{usuario_selecionado}"):
+                try:
+                    with conn.session as s:
+                        if nova_senha_admin.strip():
+                            hash_nova = hashlib.sha256(nova_senha_admin.strip().encode()).hexdigest()
+                            s.execute(
+                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub, senha = :p WHERE username = :u"),
+                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "p": hash_nova, "u": usuario_selecionado}
+                            )
+                        else:
+                            s.execute(
+                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
+                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
+                            )
+                        s.commit()
+                    st.success(f"✅ Utilizador '{usuario_selecionado}' atualizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao atualizar: {e}")
+                    
+            if col2.button("🗑️ Excluir Utilizador", type="primary", key=f"btn_excluir_{usuario_selecionado}"):
+                if usuario_selecionado == "admin":
+                    st.error("⚠️ O utilizador principal 'admin' não pode ser excluído!")
+                else:
+                    try:
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM usuarios WHERE username = :u"), {"u": usuario_selecionado})
+                            s.commit()
+                        st.success(f"🗑️ Utilizador '{usuario_selecionado}' excluído com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao excluir: {e}")
+        else:
+            st.info("Nenhum utilizador cadastrado.")
+    else:
+        st.warning("🔒 Acesso restrito apenas para administradores.")
