@@ -112,6 +112,40 @@ st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
+# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL ---
+with st.sidebar.expander("🔑 Alterar Minha Senha"):
+    senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
+    nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
+    nova_senha_2 = st.text_input("Confirmar Nova Senha", type="password", key="sidebar_nova_senha2")
+    
+    if st.button("🔄 Salvar Nova Senha"):
+        if senha_atual and nova_senha_1 and nova_senha_2:
+            if nova_senha_1 != nova_senha_2:
+                st.sidebar.error("As novas senhas não coincidem!")
+            else:
+                atual_hash = hashlib.sha256(senha_atual.encode()).hexdigest()
+                try:
+                    df_check = conn.query(
+                        "SELECT * FROM usuarios WHERE username = :u AND senha = :s",
+                        params={"u": st.session_state.username, "s": atual_hash},
+                        ttl=0
+                    )
+                    if df_check.empty:
+                        st.sidebar.error("A senha atual está incorreta!")
+                    else:
+                        nova_hash = hashlib.sha256(nova_senha_1.encode()).hexdigest()
+                        with conn.session as s:
+                            s.execute(
+                                text("UPDATE usuarios SET senha = :p WHERE username = :u"),
+                                {"p": nova_hash, "u": st.session_state.username}
+                            )
+                            s.commit()
+                        st.sidebar.success("✅ Senha alterada com sucesso!")
+                except Exception as e:
+                    st.sidebar.error(f"Erro ao alterar senha: {e}")
+        else:
+            st.sidebar.warning("Preencha todos os campos de senha.")
+
 if st.sidebar.button("🚪 Sair / Desconectar"):
     st.session_state.logado = False
     st.session_state.username = ""
@@ -485,12 +519,11 @@ with tab3:
             st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            st.markdown("#### ⚙️ Alterar Perfil ou Excluir Usuário")
+            st.markdown("#### ⚙️ Alterar Perfil, Unidade ou Senha do Usuário")
             
             usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist(), key="sel_user_edicao")
             user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
             
-            # Chaves únicas para evitar conflito de estado no Streamlit
             current_perfil = user_info["perfil"]
             idx_perfil = 0 if current_perfil == "Técnico" else 1
             
@@ -511,14 +544,23 @@ with tab3:
                 
                 edit_ubs = st.selectbox("UBS", ubs_list, index=idx_ubs, key=f"ubs_{usuario_selecionado}")
             
+            nova_senha_admin = st.text_input("Nova Senha (opcional - deixe em branco para não alterar)", type="password", key=f"nova_senha_adm_{usuario_selecionado}")
+
             col1, col2 = st.columns(2)
             if col1.button("🔄 Atualizar Dados", key=f"btn_atualizar_{usuario_selecionado}"):
                 try:
                     with conn.session as s:
-                        s.execute(
-                            text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
-                            {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
-                        )
+                        if nova_senha_admin.strip():
+                            hash_nova = hashlib.sha256(nova_senha_admin.strip().encode()).hexdigest()
+                            s.execute(
+                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub, senha = :p WHERE username = :u"),
+                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "p": hash_nova, "u": usuario_selecionado}
+                            )
+                        else:
+                            s.execute(
+                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
+                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
+                            )
                         s.commit()
                     st.success(f"✅ Utilizador '{usuario_selecionado}' atualizado com sucesso!")
                     st.rerun()
