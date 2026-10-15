@@ -153,10 +153,11 @@ if not st.session_state.logado:
 
     col_l, col_c, col_r = st.columns([1, 2, 1])
     with col_c:
-        if os.path.exists("ze-gotinha.png"):
-            st.image("ze-gotinha.png", use_container_width=True)
+        nome_imagem = "Campanha Vacinas_ Proteger é Amar.png"
+        if os.path.exists(nome_imagem):
+            st.image(nome_imagem, use_container_width=True)
         else:
-            st.info("💡 Ficheiro da imagem não encontrado na pasta raiz.")
+            st.info(f"💡 Ficheiro '{nome_imagem}' não encontrado na pasta raiz.")
 
     st.stop()
 
