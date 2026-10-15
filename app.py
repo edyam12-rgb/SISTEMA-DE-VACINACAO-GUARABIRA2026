@@ -146,6 +146,15 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
+    # --- IMAGEM DO ZÉ GOTINHA CENTRALIZADA E GRANDE NA TELA INICIAL (ANTES DO LOGIN) ---
+    c_left, c_center, c_right = st.columns([1, 2, 1])
+    with c_center:
+        st.markdown("<h2 style='text-align: center;'>💉 Sistema de Lançamento de Vacinas - Dia D</h2>", unsafe_allow_html=True)
+        st.image(
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Z%C3%A9_Gotinha_2023.png/400px-Z%C3%A9_Gotinha_2023.png", 
+            use_container_width=True
+        )
+
     st.stop()
 
 st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{st.session_state.perfil}**")
