@@ -52,9 +52,15 @@ def inicializar_tabela_usuarios():
             except:
                 s.rollback()
 
-            res = s.execute(text("SELECT COUNT(*) FROM usuarios")).fetchone()
+            # Corrige registos antigos que tenham distrito ou ubs nulos para evitar falhas de sessão
+            s.execute(text("UPDATE usuarios SET distrito = 'Geral' WHERE distrito IS NULL OR distrito = ''"))
+            s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
+            s.commit()
+
+            # Garante que o admin padrão existe e atualiza a senha para 'admin123' caso haja falha
+            senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
+            res = s.execute(text("SELECT COUNT(*) FROM usuarios WHERE username = 'admin'")).fetchone()
             if res[0] == 0:
-                senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
                 s.execute(
                     text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
                     {"u": "admin", "p": senha_hash, "pf": "Administrador", "d": "Geral", "ub": "Geral"}
@@ -85,13 +91,13 @@ if not st.session_state.logado:
             senha_hash = hashlib.sha256(login_senha.encode()).hexdigest()
             try:
                 df_user = conn.query(
-                    "SELECT * FROM usuarios WHERE username = :u AND senha = :s",
-                    params={"u": login_user, "s": senha_hash},
+                    "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u) AND senha = :s",
+                    params={"u": login_user.strip(), "s": senha_hash},
                     ttl=0
                 )
                 if not df_user.empty:
                     st.session_state.logado = True
-                    st.session_state.username = login_user
+                    st.session_state.username = df_user.iloc[0]["username"]
                     st.session_state.perfil = df_user.iloc[0]["perfil"]
                     st.session_state.distrito_user = df_user.iloc[0]["distrito"] or "Geral"
                     st.session_state.ubs_user = df_user.iloc[0]["ubs"] or "Geral"
@@ -139,7 +145,7 @@ if is_admin:
                     with conn.session as s:
                         s.execute(
                             text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
-                            {"u": novo_user, "p": senha_hash, "pf": novo_perfil, "d": cad_distrito, "ub": cad_ubs}
+                            {"u": novo_user.strip(), "p": senha_hash, "pf": novo_perfil, "d": cad_distrito, "ub": cad_ubs}
                         )
                         s.commit()
                     st.sidebar.success(f"Usuário '{novo_user}' cadastrado com sucesso!")
@@ -151,7 +157,6 @@ if is_admin:
 
 st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
 
-# LISTA UNIFICADA E ORDENADA PERFEITAMENTE EM ORDEM ALFABÉTICA
 lista_bruta = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", 
     "HEPAT. A", "HEPAT. B", "HPV", "INFLUENZA", "MENIN. C", "PENTA", "PNEUMO 10", 
