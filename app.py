@@ -147,15 +147,24 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- CSS PARA REMOVER MARGENS E PREENCHER A TELA INTEIRA COM A IMAGEM ---
+    # --- CSS PARA ELIMINAR O TOPO, MARGENS E EVITAR ROLAGEM VERTICAL ---
     st.markdown("""
         <style>
+            /* Remove o espaçamento superior e lateral padrão do Streamlit */
             .block-container {
-                padding-top: 1rem !important;
+                padding-top: 0rem !important;
                 padding-bottom: 0rem !important;
-                padding-left: 1rem !important;
-                padding-right: 1rem !important;
+                padding-left: 0.8rem !important;
+                padding-right: 0.8rem !important;
                 max-width: 100% !important;
+            }
+            /* Oculta cabeçalhos internos extras se houver */
+            header {visibility: hidden;}
+            
+            /* Garante que a imagem se ajuste perfeitamente sem forçar barra de rolagem vertical */
+            img {
+                max-height: 98vh;
+                object-fit: contain;
             }
         </style>
     """, unsafe_allow_html=True)
