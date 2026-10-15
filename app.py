@@ -80,7 +80,6 @@ if "logado" not in st.session_state:
 st.sidebar.title("🔐 Acesso ao Sistema")
 
 if not st.session_state.logado:
-    # ABAS NA BARRA LATERAL PARA LOGIN OU RECUPERAÇÃO DE SENHA ANTES DE ENTRAR
     modo_acesso = st.sidebar.radio("Selecione:", ["Fazer Login", "Redefinir Senha"], horizontal=True)
     
     if modo_acesso == "Fazer Login":
@@ -93,8 +92,8 @@ if not st.session_state.logado:
                 senha_hash = hashlib.sha256(login_senha.encode()).hexdigest()
                 try:
                     df_user = conn.query(
-                        "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u) AND senha = :s",
-                        params={"u": login_user.strip(), "s": senha_hash},
+                        "SELECT * FROM usuarios WHERE LOWER(TRIM(username)) = LOWER(TRIM(:u)) AND senha = :s",
+                        params={"u": login_user, "s": senha_hash},
                         ttl=0
                     )
                     if not df_user.empty:
@@ -113,7 +112,18 @@ if not st.session_state.logado:
     
     else:
         st.sidebar.subheader("🔑 Redefinir Senha")
-        st.sidebar.info("Digite o seu usuário e a nova senha desejada.")
+        st.sidebar.info("Digite o seu usuário exatamente como cadastrado e a nova senha desejada.")
+        
+        # Opcional: Mostra a lista de utilizadores disponíveis para facilitar a consulta
+        try:
+            df_lista_users = conn.query("SELECT username FROM usuarios ORDER BY username", ttl=0)
+            if not df_lista_users.empty:
+                with st.sidebar.expander("📋 Ver lista de usuários cadastrados"):
+                    for u in df_lista_users["username"].tolist():
+                        st.code(u)
+        except:
+            pass
+
         rec_user = st.sidebar.text_input("Nome de Usuário", key="rec_user")
         rec_nova_1 = st.sidebar.text_input("Nova Senha", type="password", key="rec_nova_1")
         rec_nova_2 = st.sidebar.text_input("Confirmar Nova Senha", type="password", key="rec_nova_2")
@@ -124,15 +134,20 @@ if not st.session_state.logado:
                     st.sidebar.error("As senhas não coincidem!")
                 else:
                     try:
-                        df_u = conn.query("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", params={"u": rec_user.strip()}, ttl=0)
+                        df_u = conn.query(
+                            "SELECT * FROM usuarios WHERE LOWER(TRIM(username)) = LOWER(TRIM(:u))", 
+                            params={"u": rec_user}, 
+                            ttl=0
+                        )
                         if df_u.empty:
-                            st.sidebar.error("Usuário não encontrado!")
+                            st.sidebar.error("Usuário não encontrado! Verifique se digitou corretamente (incluindo espaços ou maiúsculas).")
                         else:
+                            nome_real = df_u.iloc[0]["username"]
                             novo_hash = hashlib.sha256(rec_nova_1.encode()).hexdigest()
                             with conn.session as s:
                                 s.execute(
-                                    text("UPDATE usuarios SET senha = :p WHERE LOWER(username) = LOWER(:u)"),
-                                    {"p": novo_hash, "u": rec_user.strip()}
+                                    text("UPDATE usuarios SET senha = :p WHERE username = :u"),
+                                    {"p": novo_hash, "u": nome_real}
                                 )
                                 s.commit()
                             st.sidebar.success("✅ Senha redefinida com sucesso! Volte à aba 'Fazer Login'.")
