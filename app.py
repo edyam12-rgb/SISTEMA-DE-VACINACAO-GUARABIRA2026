@@ -146,14 +146,21 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- IMAGEM DO ZÉ GOTINHA CENTRALIZADA E GRANDE NA TELA INICIAL (ANTES DO LOGIN) ---
-    c_left, c_center, c_right = st.columns([1, 2, 1])
-    with c_center:
-        st.markdown("<h2 style='text-align: center;'>💉 Sistema de Lançamento de Vacinas - Dia D</h2>", unsafe_allow_html=True)
-        st.image(
-            "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Z%C3%A9_Gotinha_2023.png/400px-Z%C3%A9_Gotinha_2023.png", 
-            use_container_width=True
-        )
+    # --- TÍTULO E IMAGEM CENTRALIZADA NA ÁREA PRINCIPAL (ANTES DO LOGIN) ---
+    st.markdown("<h1 style='text-align: center; color: #1f77b4;'>💉 Sistema de Lançamento de Vacinas - Dia D</h1>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        # Usando link direto do Wikimedia Commons e imagem via HTML com fallback
+        st.markdown("""
+            <div style="text-align: center;">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/8/86/Z%C3%A9_Gotinha_2023.png" 
+                     alt="Zé Gotinha" 
+                     style="max-width: 320px; width: 100%; height: auto; margin: 0 auto; display: block;"
+                     onerror="this.onerror=null; this.src='https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/1f489.png';"/>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.stop()
 
