@@ -52,12 +52,10 @@ def inicializar_tabela_usuarios():
             except:
                 s.rollback()
 
-            # Corrige registos antigos que tenham distrito ou ubs nulos para evitar falhas de sessão
             s.execute(text("UPDATE usuarios SET distrito = 'Geral' WHERE distrito IS NULL OR distrito = ''"))
             s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
             s.commit()
 
-            # Garante que o admin padrão existe e atualiza a senha para 'admin123' caso haja falha
             senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
             res = s.execute(text("SELECT COUNT(*) FROM usuarios WHERE username = 'admin'")).fetchone()
             if res[0] == 0:
@@ -489,53 +487,57 @@ with tab3:
             st.markdown("---")
             st.markdown("#### ⚙️ Alterar Perfil ou Excluir Usuário")
             
-            usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist())
+            usuario_selecionado = st.selectbox("Selecione o Usuário:", df_usuarios["username"].tolist(), key="sel_user_edicao")
             user_info = df_usuarios[df_usuarios["username"] == usuario_selecionado].iloc[0]
             
-            with st.form("form_edicao_usuario"):
-                novo_perfil_edit = st.selectbox("Alterar Perfil", ["Técnico", "Administrador"], index=0 if user_info["perfil"] == "Técnico" else 1)
+            # Chaves únicas para evitar conflito de estado no Streamlit
+            current_perfil = user_info["perfil"]
+            idx_perfil = 0 if current_perfil == "Técnico" else 1
+            
+            novo_perfil_edit = st.selectbox("Alterar Perfil", ["Técnico", "Administrador"], index=idx_perfil, key=f"perfil_{usuario_selecionado}")
+            
+            edit_distrito = "Geral"
+            edit_ubs = "Geral"
+            
+            if novo_perfil_edit == "Técnico":
+                db_dist = user_info["distrito"] if user_info["distrito"] in ubs_por_distrito else list(ubs_por_distrito.keys())[0]
+                idx_dist = list(ubs_por_distrito.keys()).index(db_dist)
                 
-                edit_distrito = user_info["distrito"] if user_info["distrito"] else "Geral"
-                edit_ubs = user_info["ubs"] if user_info["ubs"] else "Geral"
+                edit_distrito = st.selectbox("Distrito", list(ubs_por_distrito.keys()), index=idx_dist, key=f"dist_{usuario_selecionado}")
                 
-                if novo_perfil_edit == "Técnico":
-                    edit_distrito = st.selectbox("Distrito", list(ubs_por_distrito.keys()), index=list(ubs_por_distrito.keys()).index(edit_distrito) if edit_distrito in ubs_por_distrito else 0)
-                    edit_ubs = st.selectbox("UBS", ubs_por_distrito.get(edit_distrito, []), index=0)
+                ubs_list = ubs_por_distrito.get(edit_distrito, [])
+                db_ubs = user_info["ubs"] if user_info["ubs"] in ubs_list else ubs_list[0]
+                idx_ubs = ubs_list.index(db_ubs) if db_ubs in ubs_list else 0
+                
+                edit_ubs = st.selectbox("UBS", ubs_list, index=idx_ubs, key=f"ubs_{usuario_selecionado}")
+            
+            col1, col2 = st.columns(2)
+            if col1.button("🔄 Atualizar Dados", key=f"btn_atualizar_{usuario_selecionado}"):
+                try:
+                    with conn.session as s:
+                        s.execute(
+                            text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
+                            {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
+                        )
+                        s.commit()
+                    st.success(f"✅ Utilizador '{usuario_selecionado}' atualizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao atualizar: {e}")
+                    
+            if col2.button("🗑️ Excluir Utilizador", type="primary", key=f"btn_excluir_{usuario_selecionado}"):
+                if usuario_selecionado == "admin":
+                    st.error("⚠️ O utilizador principal 'admin' não pode ser excluído!")
                 else:
-                    edit_distrito = "Geral"
-                    edit_ubs = "Geral"
-                
-                col1, col2 = st.columns(2)
-                atualizar = col1.form_submit_button("🔄 Atualizar Dados")
-                excluir = col2.form_submit_button("🗑️ Excluir Usuário", type="primary")
-                
-                if atualizar:
                     try:
                         with conn.session as s:
-                            s.execute(
-                                text("UPDATE usuarios SET perfil = :pf, distrito = :d, ubs = :ub WHERE username = :u"),
-                                {"pf": novo_perfil_edit, "d": edit_distrito, "ub": edit_ubs, "u": usuario_selecionado}
-                            )
+                            s.execute(text("DELETE FROM usuarios WHERE username = :u"), {"u": usuario_selecionado})
                             s.commit()
-                        st.success(f"✅ Usuário '{usuario_selecionado}' atualizado com sucesso!")
+                        st.success(f"🗑️ Utilizador '{usuario_selecionado}' excluído com sucesso!")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erro ao atualizar: {e}")
-                        
-                if excluir:
-                    if usuario_selecionado == "admin":
-                        st.error("⚠️ O usuário principal 'admin' não pode ser excluído!")
-                    else:
-                        try:
-                            with conn.session as s:
-                                s.execute(text("DELETE FROM usuarios WHERE username = :u"), {"u": usuario_selecionado})
-                                s.commit()
-                            st.success(f"🗑️ Usuário '{usuario_selecionado}' excluído com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao excluir: {e}")
+                        st.error(f"Erro ao excluir: {e}")
         else:
-            st.info("Nenhum usuário cadastrado.")
+            st.info("Nenhum utilizador cadastrado.")
     else:
         st.warning("🔒 Acesso restrito apenas para administradores.")
-
