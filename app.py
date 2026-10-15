@@ -80,39 +80,74 @@ if "logado" not in st.session_state:
 st.sidebar.title("🔐 Acesso ao Sistema")
 
 if not st.session_state.logado:
-    st.sidebar.subheader("Faça seu Login")
-    login_user = st.sidebar.text_input("Usuário", key="login_user")
-    login_senha = st.sidebar.text_input("Senha", type="password", key="login_senha")
+    # ABAS NA BARRA LATERAL PARA LOGIN OU RECUPERAÇÃO DE SENHA ANTES DE ENTRAR
+    modo_acesso = st.sidebar.radio("Selecione:", ["Fazer Login", "Redefinir Senha"], horizontal=True)
     
-    if st.sidebar.button("Entrar", type="primary"):
-        if login_user and login_senha:
-            senha_hash = hashlib.sha256(login_senha.encode()).hexdigest()
-            try:
-                df_user = conn.query(
-                    "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u) AND senha = :s",
-                    params={"u": login_user.strip(), "s": senha_hash},
-                    ttl=0
-                )
-                if not df_user.empty:
-                    st.session_state.logado = True
-                    st.session_state.username = df_user.iloc[0]["username"]
-                    st.session_state.perfil = df_user.iloc[0]["perfil"]
-                    st.session_state.distrito_user = df_user.iloc[0]["distrito"] or "Geral"
-                    st.session_state.ubs_user = df_user.iloc[0]["ubs"] or "Geral"
-                    st.rerun()
+    if modo_acesso == "Fazer Login":
+        st.sidebar.subheader("Faça seu Login")
+        login_user = st.sidebar.text_input("Usuário", key="login_user")
+        login_senha = st.sidebar.text_input("Senha", type="password", key="login_senha")
+        
+        if st.sidebar.button("Entrar", type="primary"):
+            if login_user and login_senha:
+                senha_hash = hashlib.sha256(login_senha.encode()).hexdigest()
+                try:
+                    df_user = conn.query(
+                        "SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u) AND senha = :s",
+                        params={"u": login_user.strip(), "s": senha_hash},
+                        ttl=0
+                    )
+                    if not df_user.empty:
+                        st.session_state.logado = True
+                        st.session_state.username = df_user.iloc[0]["username"]
+                        st.session_state.perfil = df_user.iloc[0]["perfil"]
+                        st.session_state.distrito_user = df_user.iloc[0]["distrito"] or "Geral"
+                        st.session_state.ubs_user = df_user.iloc[0]["ubs"] or "Geral"
+                        st.rerun()
+                    else:
+                        st.sidebar.error("Usuário ou senha incorretos!")
+                except Exception as e:
+                    st.sidebar.error(f"Erro ao autenticar: {e}")
+            else:
+                st.sidebar.warning("Preencha todos os campos.")
+    
+    else:
+        st.sidebar.subheader("🔑 Redefinir Senha")
+        st.sidebar.info("Digite o seu usuário e a nova senha desejada.")
+        rec_user = st.sidebar.text_input("Nome de Usuário", key="rec_user")
+        rec_nova_1 = st.sidebar.text_input("Nova Senha", type="password", key="rec_nova_1")
+        rec_nova_2 = st.sidebar.text_input("Confirmar Nova Senha", type="password", key="rec_nova_2")
+        
+        if st.sidebar.button("Atualizar Minha Senha"):
+            if rec_user and rec_nova_1 and rec_nova_2:
+                if rec_nova_1 != rec_nova_2:
+                    st.sidebar.error("As senhas não coincidem!")
                 else:
-                    st.sidebar.error("Usuário ou senha incorretos!")
-            except Exception as e:
-                st.sidebar.error(f"Erro ao autenticar: {e}")
-        else:
-            st.sidebar.warning("Preencha todos os campos.")
+                    try:
+                        df_u = conn.query("SELECT * FROM usuarios WHERE LOWER(username) = LOWER(:u)", params={"u": rec_user.strip()}, ttl=0)
+                        if df_u.empty:
+                            st.sidebar.error("Usuário não encontrado!")
+                        else:
+                            novo_hash = hashlib.sha256(rec_nova_1.encode()).hexdigest()
+                            with conn.session as s:
+                                s.execute(
+                                    text("UPDATE usuarios SET senha = :p WHERE LOWER(username) = LOWER(:u)"),
+                                    {"p": novo_hash, "u": rec_user.strip()}
+                                )
+                                s.commit()
+                            st.sidebar.success("✅ Senha redefinida com sucesso! Volte à aba 'Fazer Login'.")
+                    except Exception as e:
+                        st.sidebar.error(f"Erro ao redefinir: {e}")
+            else:
+                st.sidebar.warning("Preencha todos os campos.")
+
     st.stop()
 
 st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{st.session_state.perfil}**")
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
-# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL ---
+# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL (SE JÁ ESTIVER LOGADO) ---
 with st.sidebar.expander("🔑 Alterar Minha Senha"):
     senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
     nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
