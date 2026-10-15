@@ -147,12 +147,24 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- ÁREA PRINCIPAL COM A IMAGEM GRANDE (SEM O TÍTULO DE TEXTO) ---
-    nome_imagem = "Campanha Vacinas_ Proteger é Amar.png"
+    # --- CSS PARA REMOVER MARGENS E PREENCHER A TELA INTEIRA COM A IMAGEM ---
+    st.markdown("""
+        <style>
+            .block-container {
+                padding-top: 1rem !important;
+                padding-bottom: 0rem !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+                max-width: 100% !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    nome_imagem = "Campanha Vacinas_ Dia D do SUS.png"
     if os.path.exists(nome_imagem):
         st.image(nome_imagem, use_container_width=True)
     else:
-        st.info(f"💡 Ficheiro '{nome_imagem}' não encontrado na pasta raiz.")
+        st.error(f"💡 Ficheiro '{nome_imagem}' não encontrado na pasta raiz do GitHub.")
 
     st.stop()
 
