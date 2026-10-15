@@ -147,17 +147,12 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- ÁREA PRINCIPAL CENTRALIZADA COM A IMAGEM LOCAL (ANTES DO LOGIN) ---
-    st.markdown("<h1 style='text-align: center; color: #1f77b4;'>💉 Sistema de Lançamento de Vacinas - Dia D</h1>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_l, col_c, col_r = st.columns([1, 2, 1])
-    with col_c:
-        nome_imagem = "Campanha Vacinas_ Proteger é Amar.png"
-        if os.path.exists(nome_imagem):
-            st.image(nome_imagem, use_container_width=True)
-        else:
-            st.info(f"💡 Ficheiro '{nome_imagem}' não encontrado na pasta raiz.")
+    # --- ÁREA PRINCIPAL COM A IMAGEM GRANDE (SEM O TÍTULO DE TEXTO) ---
+    nome_imagem = "Campanha Vacinas_ Proteger é Amar.png"
+    if os.path.exists(nome_imagem):
+        st.image(nome_imagem, use_container_width=True)
+    else:
+        st.info(f"💡 Ficheiro '{nome_imagem}' não encontrado na pasta raiz.")
 
     st.stop()
 
