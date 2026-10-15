@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 import io
+import os
 import hashlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -146,43 +147,16 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- ÁREA PRINCIPAL CENTRALIZADA COM ILUSTRAÇÃO DO ZÉ GOTINHA (ANTES DO LOGIN) ---
-    st.markdown("""
-        <div style="text-align: center; padding-top: 20px;">
-            <h1 style="color: #1f77b4; font-size: 2.5rem; margin-bottom: 25px;">💉 Sistema de Lançamento de Vacinas - Dia D</h1>
-            
-            <!-- Desenho Vetorial SVG do Zé Gotinha (Funciona 100% offline e sem erro de carregamento) -->
-            <svg width="280" height="340" viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto; display: block;">
-                <!-- Corpo de Gota -->
-                <path d="M 100 10 C 130 70 170 110 170 160 C 170 200 138 230 100 230 C 62 230 30 200 30 160 C 30 110 70 70 100 10 Z" 
-                      fill="#FFFFFF" stroke="#D0D0D0" stroke-width="3"/>
-                <!-- Olhos -->
-                <ellipse cx="80" cy="120" rx="8" ry="12" fill="#000000"/>
-                <ellipse cx="120" cy="120" rx="8" ry="12" fill="#000000"/>
-                <circle cx="82" cy="116" r="3" fill="#FFFFFF"/>
-                <circle cx="122" cy="116" r="3" fill="#FFFFFF"/>
-                <!-- Sobrancelhas -->
-                <path d="M 72 102 Q 80 96 88 102" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round"/>
-                <path d="M 112 102 Q 120 96 128 102" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round"/>
-                <!-- Sorriso Amigável -->
-                <path d="M 75 145 Q 100 175 125 145" stroke="#E53935" stroke-width="5" fill="none" stroke-linecap="round"/>
-                <!-- Bochechas Coradas -->
-                <ellipse cx="65" cy="138" rx="10" ry="6" fill="#FF8A80" opacity="0.6"/>
-                <ellipse cx="135" cy="138" rx="10" ry="6" fill="#FF8A80" opacity="0.6"/>
-                <!-- Braços de Aceno -->
-                <path d="M 38 150 Q 15 130 10 110" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round"/>
-                <path d="M 38 150 Q 15 130 10 110" stroke="#D0D0D0" stroke-width="3" fill="none" stroke-linecap="round"/>
-                <circle cx="10" cy="110" r="8" fill="#FFFFFF" stroke="#D0D0D0" stroke-width="2"/>
-                <path d="M 162 150 Q 185 160 190 180" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round"/>
-                <path d="M 162 150 Q 185 160 190 180" stroke="#D0D0D0" stroke-width="3" fill="none" stroke-linecap="round"/>
-                <circle cx="190" cy="180" r="8" fill="#FFFFFF" stroke="#D0D0D0" stroke-width="2"/>
-                <!-- Símbolo / Gotinha no Peito -->
-                <path d="M 100 185 C 105 192 110 197 110 202 C 110 208 105 212 100 212 C 95 212 90 208 90 202 C 90 197 95 192 100 185 Z" fill="#1E88E5"/>
-            </svg>
+    # --- ÁREA PRINCIPAL CENTRALIZADA COM A IMAGEM LOCAL (ANTES DO LOGIN) ---
+    st.markdown("<h1 style='text-align: center; color: #1f77b4;'>💉 Sistema de Lançamento de Vacinas - Dia D</h1>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-            <p style="font-size: 1.2rem; color: #888; margin-top: 20px;">Utilize o menu lateral para aceder ao sistema.</p>
-        </div>
-    """, unsafe_allow_html=True)
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        if os.path.exists("ze-gotinha.png"):
+            st.image("ze-gotinha.png", use_container_width=True)
+        else:
+            st.info("💡 Ficheiro da imagem não encontrado na pasta raiz.")
 
     st.stop()
 
