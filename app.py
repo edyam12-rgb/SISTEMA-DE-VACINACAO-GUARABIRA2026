@@ -150,7 +150,6 @@ if not st.session_state.logado:
     # --- CSS PARA ELIMINAR O TOPO, MARGENS E EVITAR ROLAGEM VERTICAL ---
     st.markdown("""
         <style>
-            /* Remove o espaçamento superior e lateral padrão do Streamlit */
             .block-container {
                 padding-top: 0rem !important;
                 padding-bottom: 0rem !important;
@@ -158,10 +157,7 @@ if not st.session_state.logado:
                 padding-right: 0.8rem !important;
                 max-width: 100% !important;
             }
-            /* Oculta cabeçalhos internos extras se houver */
             header {visibility: hidden;}
-            
-            /* Garante que a imagem se ajuste perfeitamente sem forçar barra de rolagem vertical */
             img {
                 max-height: 98vh;
                 object-fit: contain;
@@ -281,7 +277,8 @@ with tab1:
             hora_local = datetime.now(ZoneInfo("America/Fortaleza")).hour
         except Exception:
             hora_local = datetime.now().hour
-        return "Manhã (até as 11h)" if hora_local < 11 else "Tarde (das 11h às 16h)"
+        # Mudança para transição automática às 12h
+        return "Manhã (até as 12h)" if hora_local < 12 else "Tarde (das 12h às 16h)"
 
     if not is_admin:
         st.session_state.sel_turno_ativo = obter_turno_automatico()
@@ -335,7 +332,7 @@ with tab1:
         st.warning("⚠️ **ATENÇÃO:** Existem alterações não salvas neste turno. **O seletor de turno está bloqueado** até que você clique em **'💾 Salvar Lançamento'**.")
 
     with st.form("form_seletor_turno"):
-        lista_turnos_opt = ["Manhã (até as 11h)", "Tarde (das 11h às 16h)"]
+        lista_turnos_opt = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
         
         if is_admin:
             col1, col2, col3 = st.columns(3)
@@ -410,7 +407,7 @@ with tab2:
             lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
             tabelas_turnos = {}
-            turnos_lista = ["Manhã (até as 11h)", "Tarde (das 11h às 16h)"]
+            turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
             
             for t in turnos_lista:
                 df_t = df_banco[df_banco['turno'] == t]
