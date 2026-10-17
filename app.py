@@ -29,13 +29,30 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri", "Tananduba"]
 }
 
+# --- FUNÇÕES DE ESTILIZAÇÃO DE TABELAS COM CORES ---
+def destacar_linhas_tabela(df):
+    """Aplica cores personalizadas para Totais de Distrito, Totais Parciais e Total Final."""
+    def aplicar_cor_linha(row):
+        idx_str = str(row.name).upper()
+        # Total Final
+        if 'TOTAL FINAL' in idx_str:
+            return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
+        # Total Parcial do Turno
+        elif 'TOTAL PARCIAL' in idx_str:
+            return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
+        # Total por Distrito
+        elif 'TOTAL DISTRITO' in idx_str:
+            return ['background-color: #d1ecf1; color: #0c5460; font-weight: bold;'] * len(row)
+        return [''] * len(row)
+
+    return df.style.apply(aplicar_cor_linha, axis=1)
+
 # --- FUNÇÃO PARA CRIAR OU ATUALIZAR TABELAS NO BANCO ---
 def inicializar_tabelas():
     if conn is None:
         return
     try:
         with conn.session as s:
-            # Tabela de usuários
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -59,7 +76,6 @@ def inicializar_tabelas():
             s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
             s.commit()
 
-            # Tabela de Histórico de Dias D
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS historico_dias_d (
                     id SERIAL PRIMARY KEY,
@@ -71,7 +87,6 @@ def inicializar_tabelas():
             """))
             s.commit()
 
-            # Usuário padrão Admin
             senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
             res = s.execute(text("SELECT COUNT(*) FROM usuarios WHERE username = 'admin'")).fetchone()
             if res[0] == 0:
@@ -192,7 +207,7 @@ st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
-# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL ---
+# --- ALTERAR SENHA NA BARRA LATERAL ---
 with st.sidebar.expander("🔑 Alterar Minha Senha"):
     senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
     nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
@@ -474,7 +489,7 @@ with tab2:
 
                     tabelas_turnos[t] = cons_com_total
                     st.markdown(f"#### ⏰ {t}")
-                    st.dataframe(cons_com_total, use_container_width=True)
+                    st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
             
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
@@ -508,7 +523,7 @@ with tab2:
 
             df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
             st.markdown("### 🏁 Total Geral")
-            st.dataframe(df_geral_com_total, use_container_width=True)
+            st.dataframe(destacar_linhas_tabela(df_geral_com_total), use_container_width=True)
             
             st.markdown("---")
             
@@ -556,20 +571,28 @@ with tab2:
                 
                 table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
                 t_turn = Table(table_data_t)
-                t_turn.setStyle(TableStyle([
+                
+                # Estilização com cores no PDF
+                style_pdf_t = [
                     ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                     ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                     ('FONTSIZE', (0,0), (-1,0), 6),
-                    ('BOTTOMPADDING', (0,0), (-1,0), 2),
-                    ('TOPPADDING', (0,0), (-1,0), 2),
-                    ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
                     ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                     ('FONTSIZE', (0,1), (-1,-1), 6),
-                    ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
-                    ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
-                ]))
+                ]
+                
+                for r_idx, row in enumerate(df_t_pdf.values, start=1):
+                    row_str = " ".join([str(x) for x in row]).upper()
+                    if 'TOTAL PARCIAL' in row_str:
+                        style_pdf_t.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#fff3cd')))
+                        style_pdf_t.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+                    elif 'TOTAL DISTRITO' in row_str:
+                        style_pdf_t.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d1ecf1')))
+                        style_pdf_t.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+
+                t_turn.setStyle(TableStyle(style_pdf_t))
                 elements.append(t_turn)
                 elements.append(Spacer(1, 3))
             
@@ -583,20 +606,27 @@ with tab2:
 
             table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
             t = Table(table_data)
-            t.setStyle(TableStyle([
+            
+            style_pdf_g = [
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ca02c')),
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0,0), (-1,0), 6),
-                ('BOTTOMPADDING', (0,0), (-1,0), 2),
-                ('TOPPADDING', (0,0), (-1,0), 2),
-                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                 ('FONTSIZE', (0,1), (-1,-1), 6),
-                ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
-                ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
-            ]))
+            ]
+            
+            for r_idx, row in enumerate(df_pdf.values, start=1):
+                row_str = " ".join([str(x) for x in row]).upper()
+                if 'TOTAL FINAL' in row_str:
+                    style_pdf_g.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d4edda')))
+                    style_pdf_g.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+                elif 'TOTAL DISTRITO' in row_str:
+                    style_pdf_g.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d1ecf1')))
+                    style_pdf_g.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+
+            t.setStyle(TableStyle(style_pdf_g))
             
             elements.append(t)
             doc.build(elements)
@@ -655,7 +685,6 @@ with tab3:
                             soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
                             cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
                         
-                        # Total Parcial do Turno no Histórico
                         if isinstance(nivel_h, list):
                             linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
                             tot_turno_sh = cons_h.loc[linhas_ubs_th].sum(numeric_only=True)
@@ -666,7 +695,7 @@ with tab3:
 
                         tabelas_turnos_h[t] = cons_h_com_total
                         st.markdown(f"#### ⏰ {t}")
-                        st.dataframe(cons_h_com_total, use_container_width=True)
+                        st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
                 
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
                 tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
@@ -699,9 +728,8 @@ with tab3:
 
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
                 st.markdown("### 🏁 Total Geral da Campanha Arquivada")
-                st.dataframe(df_geral_com_total_h, use_container_width=True)
+                st.dataframe(destacar_linhas_tabela(df_geral_com_total_h), use_container_width=True)
                 
-                # Botão para excluir registro de histórico específico
                 with st.expander("🗑️ Excluir este Histórico"):
                     if st.button(f"Confirmar Exclusão do Registro ID {id_sel}", type="primary"):
                         with conn.session as s:
