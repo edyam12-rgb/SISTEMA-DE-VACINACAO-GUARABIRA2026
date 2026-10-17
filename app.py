@@ -33,7 +33,7 @@ ubs_por_distrito = {
 def destacar_linhas_tabela(df):
     def aplicar_cor_linha(row):
         idx_str = str(row.name).upper()
-        if 'TOTAL FINAL' in idx_str or 'TOTAL GERAL' in idx_str:
+        if 'TOTAL FINAL' in idx_str or 'TOTAL GERAL' in idx_str or 'TOTAL MUNICÍPIO' in idx_str:
             return ['background-color: #d4edda; color: #155724; font-weight: bold; font-size: 11px;'] * len(row)
         elif 'TOTAL PARCIAL' in idx_str:
             return ['background-color: #fff3cd; color: #856404; font-weight: bold; font-size: 11px;'] * len(row)
@@ -509,14 +509,13 @@ with tab2:
                     st.markdown(f"#### ⏰ {t} - Visão por Grupo")
                     st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
 
-                    # 2. Tabela Detalhada por Vacina no Turno
-                    df_t_vac = df_t.pivot_table(index=nivel, columns='vacina', values='quantidade', aggfunc='sum', fill_value=0)
-                    tot_vac_serie = df_t_vac.sum(numeric_only=True)
-                    df_t_vac_com_total = pd.concat([df_t_vac, tot_vac_serie.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS') if isinstance(nivel, list) else 'TOTAL PARCIAL'})])
+                    # 2. Tabela com TOTAL GERAL POR VACINA (sem dividir por distrito)
+                    tot_geral_vac = df_t.groupby('vacina')['quantidade'].sum().to_frame().T
+                    tot_geral_vac.index = ['TOTAL MUNICÍPIO']
+                    tabelas_turnos_detalhadas[t] = tot_geral_vac
                     
-                    tabelas_turnos_detalhadas[t] = df_t_vac_com_total
-                    st.markdown(f"#### 💉 {t} - Total por Vacinas")
-                    st.dataframe(destacar_linhas_tabela(df_t_vac_com_total), use_container_width=True)
+                    st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Município)")
+                    st.dataframe(destacar_linhas_tabela(tot_geral_vac), use_container_width=True)
                     st.markdown("---")
             
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
@@ -732,12 +731,11 @@ with tab3:
                         st.markdown(f"#### ⏰ {t}")
                         st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
 
-                        # Tabela Detalhada por Vacina no Histórico
-                        df_th_vac = df_t_h.pivot_table(index=nivel_h, columns='vacina', values='quantidade', aggfunc='sum', fill_value=0)
-                        tot_vach_serie = df_th_vac.sum(numeric_only=True)
-                        df_th_vac_com_total = pd.concat([df_th_vac, tot_vach_serie.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS') if isinstance(nivel_h, list) else 'TOTAL PARCIAL'})])
-                        st.markdown(f"#### 💉 {t} - Total por Vacinas (Histórico)")
-                        st.dataframe(destacar_linhas_tabela(df_th_vac_com_total), use_container_width=True)
+                        # Tabela Geral por Vacina no Histórico
+                        tot_geral_vac_h = df_t_h.groupby('vacina')['quantidade'].sum().to_frame().T
+                        tot_geral_vac_h.index = ['TOTAL MUNICÍPIO']
+                        st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Histórico)")
+                        st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
                         st.markdown("---")
                 
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
