@@ -29,17 +29,21 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri", "Tananduba"]
 }
 
-# --- FUNÇÃO DE ESTILIZAÇÃO COMPACTA E COLORIDA ---
+# --- FUNÇÕES DE ESTILIZAÇÃO DE TABELAS COM CORES ---
 def destacar_linhas_tabela(df):
+    """Aplica cores personalizadas para Totais de Distrito, Totais Parciais e Total Final."""
     def aplicar_cor_linha(row):
         idx_str = str(row.name).upper()
+        # Total Final
         if 'TOTAL FINAL' in idx_str:
-            return ['background-color: #d4edda; color: #155724; font-weight: bold; font-size: 11px;'] * len(row)
+            return ['background-color: #d4edda; color: #155724; font-weight: bold;'] * len(row)
+        # Total Parcial do Turno
         elif 'TOTAL PARCIAL' in idx_str:
-            return ['background-color: #fff3cd; color: #856404; font-weight: bold; font-size: 11px;'] * len(row)
+            return ['background-color: #fff3cd; color: #856404; font-weight: bold;'] * len(row)
+        # Total por Distrito
         elif 'TOTAL DISTRITO' in idx_str:
-            return ['background-color: #d1ecf1; color: #0c5460; font-weight: bold; font-size: 11px;'] * len(row)
-        return ['font-size: 11px;'] * len(row)
+            return ['background-color: #d1ecf1; color: #0c5460; font-weight: bold;'] * len(row)
+        return [''] * len(row)
 
     return df.style.apply(aplicar_cor_linha, axis=1)
 
@@ -71,25 +75,6 @@ def inicializar_tabelas():
             s.execute(text("UPDATE usuarios SET distrito = 'Geral' WHERE distrito IS NULL OR distrito = ''"))
             s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
             s.commit()
-
-            s.execute(text("""
-                CREATE TABLE IF NOT EXISTS registros_vacinacao (
-                    id SERIAL PRIMARY KEY,
-                    distrito VARCHAR(50),
-                    unidade_saude VARCHAR(100),
-                    turno VARCHAR(50),
-                    vacina VARCHAR(100),
-                    quantidade INT,
-                    lancado_por VARCHAR(50)
-                )
-            """))
-            s.commit()
-
-            try:
-                s.execute(text("ALTER TABLE registros_vacinacao ADD COLUMN IF NOT EXISTS lancado_por VARCHAR(50)"))
-                s.commit()
-            except:
-                s.rollback()
 
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS historico_dias_d (
@@ -192,23 +177,20 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
+    # --- CSS PARA ELIMINAR O TOPO, MARGENS E EVITAR ROLAGEM VERTICAL ---
     st.markdown("""
         <style>
             .block-container {
                 padding-top: 0rem !important;
                 padding-bottom: 0rem !important;
-                padding-left: 0.5rem !important;
-                padding-right: 0.5rem !important;
+                padding-left: 0.8rem !important;
+                padding-right: 0.8rem !important;
                 max-width: 100% !important;
             }
             header {visibility: hidden;}
             img {
                 max-height: 98vh;
                 object-fit: contain;
-            }
-            th, td {
-                padding-left: 4px !important;
-                padding-right: 4px !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -225,6 +207,7 @@ st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
+# --- ALTERAR SENHA NA BARRA LATERAL ---
 with st.sidebar.expander("🔑 Alterar Minha Senha"):
     senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
     nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
@@ -268,6 +251,7 @@ if st.sidebar.button("🚪 Sair / Desconectar"):
 
 is_admin = (st.session_state.perfil == "Administrador")
 
+# --- PAINEL DE CADASTRO DE PERFIS (ADMINS) ---
 if is_admin:
     with st.sidebar.expander("👤 Cadastrar Novo Usuário"):
         novo_user = st.text_input("Novo Usuário", key="cad_user")
@@ -317,6 +301,7 @@ if is_admin:
 else: 
     tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Histórico Dias D (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
+# --- TAB 1: LANÇAMENTO POR POSTO ---
 with tab1:
     def obter_turno_automatico():
         try:
@@ -406,27 +391,17 @@ with tab1:
 
     if st.button("💾 Salvar Lançamento", type="primary"):
         try:
-            usuario_atual = st.session_state.username
             with conn.session as s:
                 s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo})
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
-                    s.execute(text("""
-                        INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade, lancado_por) 
-                        VALUES (:distrito, :ubs, :turno, :vacina, :quantidade, :user)
-                    """), {
-                        "distrito": st.session_state.sel_distrito_ativo, 
-                        "ubs": st.session_state.sel_ubs_ativo, 
-                        "turno": st.session_state.sel_turno_ativo, 
-                        "vacina": row["VACINA"], 
-                        "quantidade": row["QUANTIDADE"],
-                        "user": usuario_atual
-                    })
+                    s.execute(text("INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo, "vacina": row["VACINA"], "quantidade": row["QUANTIDADE"]})
                 s.commit()
                 st.success("✅ Salvo com sucesso!")
                 st.rerun()
         except Exception as e: 
             st.error(f"Erro ao salvar: {e}")
 
+# --- TAB 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
     if is_admin:
         st.markdown("### 📊 Painel de Relatório Consolidado")
@@ -435,6 +410,7 @@ with tab2:
         if col_btn1.button("🔄 Atualizar Relatório", type="secondary"):
             st.rerun()
 
+        # --- ÁREA ADMINISTRATIVA: SALVAR HISTÓRICO OU LIMPAR BANCO ---
         with st.expander("📦 Finalizar Dia D e Arquivar no Histórico"):
             st.info("Esta opção grava o relatório atual na tabela de histórico permanente para futuras pesquisas e depois limpa os lançamentos ativos para o próximo Dia D.")
             
@@ -485,13 +461,8 @@ with tab2:
         if not df_banco.empty:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
-            
-            if modo == "Estabelecimento (UBS)":
-                nivel = ['distrito', 'unidade_saude', 'lancado_por']
-            else:
-                nivel = 'distrito'
-                
-            lista_nivel = nivel if isinstance(nivel, list) else [nivel]
+            nivel = 'distrito' if modo == "Distrito" else ['distrito', 'unidade_saude']
+            lista_nivel = [nivel] if isinstance(nivel, str) else nivel
             
             tabelas_turnos = {}
             turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
@@ -504,14 +475,14 @@ with tab2:
                     
                     if modo == "Estabelecimento (UBS)":
                         soma_distrito = cons.groupby(level=0).sum()
-                        if not soma_distrito.empty:
-                            soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_distrito.index])
-                            cons = pd.concat([cons, soma_distrito]).sort_index()
+                        soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
+                        cons = pd.concat([cons, soma_distrito]).sort_index()
                     
+                    # Cálculo e adição da linha de Total Parcial do Turno
                     if isinstance(nivel, list):
                         linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
                         tot_turno_s = cons.loc[linhas_ubs_t].sum(numeric_only=True)
-                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS', '-')})])
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
                     else:
                         tot_turno_s = cons.sum(numeric_only=True)
                         cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
@@ -541,9 +512,8 @@ with tab2:
             
             if modo == "Estabelecimento (UBS)":
                 soma_geral_distrito = df_geral.groupby(level=0).sum()
-                if not soma_geral_distrito.empty:
-                    soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_geral_distrito.index])
-                    df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
+                soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
+                df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
             if isinstance(nivel, list):
                 linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
@@ -551,12 +521,7 @@ with tab2:
             else:
                 total_final_serie = df_geral.sum(numeric_only=True)
 
-            if isinstance(nivel, list):
-                idx_total_final = ('TOTAL FINAL', '', '-')
-            else:
-                idx_total_final = 'TOTAL FINAL'
-
-            df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: idx_total_final})])
+            df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
             st.markdown("### 🏁 Total Geral")
             st.dataframe(destacar_linhas_tabela(df_geral_com_total), use_container_width=True)
             
@@ -601,22 +566,21 @@ with tab2:
                 if isinstance(nivel, list):
                     df_t_pdf.columns.values[0] = "Distrito"
                     df_t_pdf.columns.values[1] = "UBS"
-                    df_t_pdf.columns.values[2] = "Lançado Por"
                 else:
                     df_t_pdf.columns.values[0] = "Distrito"
                 
                 table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
                 t_turn = Table(table_data_t)
                 
+                # Estilização com cores no PDF
                 style_pdf_t = [
                     ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
                     ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                     ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                     ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0,0), (-1,0), 5.5),
+                    ('FONTSIZE', (0,0), (-1,0), 6),
                     ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                    ('TOPPADDING', (0,0), (-1,-1), 1),
+                    ('FONTSIZE', (0,1), (-1,-1), 6),
                 ]
                 
                 for r_idx, row in enumerate(df_t_pdf.values, start=1):
@@ -637,7 +601,6 @@ with tab2:
             if isinstance(nivel, list):
                 df_pdf.columns.values[0] = "Distrito"
                 df_pdf.columns.values[1] = "UBS"
-                df_pdf.columns.values[2] = "Lançado Por"
             else:
                 df_pdf.columns.values[0] = "Distrito"
 
@@ -649,10 +612,9 @@ with tab2:
                 ('TEXTCOLOR', (0,0), (-1,0), colors.white),
                 ('ALIGN', (0,0), (-1,-1), 'CENTER'),
                 ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0,0), (-1,0), 5.5),
+                ('FONTSIZE', (0,0), (-1,0), 6),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-                ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-                ('TOPPADDING', (0,0), (-1,-1), 1),
+                ('FONTSIZE', (0,1), (-1,-1), 6),
             ]
             
             for r_idx, row in enumerate(df_pdf.values, start=1):
@@ -665,6 +627,7 @@ with tab2:
                     style_pdf_g.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
 
             t.setStyle(TableStyle(style_pdf_g))
+            
             elements.append(t)
             doc.build(elements)
             
@@ -681,6 +644,7 @@ with tab2:
     else: 
         st.warning("🔒 Acesso restrito apenas para administradores.")
 
+# --- TAB 3: HISTÓRICO DIAS D (EXCLUSIVO PARA ADMINS) ---
 with tab3:
     if is_admin:
         st.markdown("### 📜 Consulta ao Histórico de Dias D Realizados")
@@ -705,13 +669,8 @@ with tab3:
                 
                 df_banco_hist['GRUPO_TURNO'] = df_banco_hist['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
                 modo_h = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_hist")
-                
-                if modo_h == "Estabelecimento (UBS)":
-                    nivel_h = ['distrito', 'unidade_saude', 'lancado_por'] if 'lancado_por' in df_banco_hist.columns else ['distrito', 'unidade_saude']
-                else:
-                    nivel_h = 'distrito'
-                    
-                lista_nivel_h = nivel_h if isinstance(nivel_h, list) else [nivel_h]
+                nivel_h = 'distrito' if modo_h == "Distrito" else ['distrito', 'unidade_saude']
+                lista_nivel_h = [nivel_h] if isinstance(nivel_h, str) else nivel_h
                 
                 tabelas_turnos_h = {}
                 turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
@@ -723,21 +682,13 @@ with tab3:
                         cons_h['TOTAL'] = cons_h.sum(axis=1)
                         if modo_h == "Estabelecimento (UBS)":
                             soma_dist_h = cons_h.groupby(level=0).sum()
-                            if not soma_dist_h.empty:
-                                if len(lista_nivel_h) == 3:
-                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_dist_h.index])
-                                else:
-                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
-                                cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
+                            soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
+                            cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
                         
                         if isinstance(nivel_h, list):
                             linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
                             tot_turno_sh = cons_h.loc[linhas_ubs_th].sum(numeric_only=True)
-                            if len(lista_nivel_h) == 3:
-                                idx_tp = ('TOTAL PARCIAL', 'TODOS OS POSTOS', '-')
-                            else:
-                                idx_tp = ('TOTAL PARCIAL', 'TODOS OS POSTOS')
-                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: idx_tp})])
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
                         else:
                             tot_turno_sh = cons_h.sum(numeric_only=True)
                             cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
@@ -766,12 +717,8 @@ with tab3:
                 
                 if modo_h == "Estabelecimento (UBS)":
                     soma_g_dist_h = df_geral_h.groupby(level=0).sum()
-                    if not soma_g_dist_h.empty:
-                        if len(lista_nivel_h) == 3:
-                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_g_dist_h.index])
-                        else:
-                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
-                        df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
+                    soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
+                    df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
 
                 if isinstance(nivel_h, list):
                     linhas_ubs_h = [idx for idx in df_geral_h.index if idx[1] != "TOTAL DISTRITO"]
@@ -779,12 +726,7 @@ with tab3:
                 else:
                     tot_final_h = df_geral_h.sum(numeric_only=True)
 
-                if isinstance(nivel_h, list):
-                    idx_tf_h = ('TOTAL FINAL', '', '-') if len(lista_nivel_h) == 3 else ('TOTAL FINAL', '')
-                else:
-                    idx_tf_h = 'TOTAL FINAL'
-
-                df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: idx_tf_h})])
+                df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
                 st.markdown("### 🏁 Total Geral da Campanha Arquivada")
                 st.dataframe(destacar_linhas_tabela(df_geral_com_total_h), use_container_width=True)
                 
@@ -800,6 +742,7 @@ with tab3:
     else:
         st.warning("🔒 Acesso restrito apenas para administradores.")
 
+# --- TAB 4: GERENCIAR USUÁRIOS ---
 with tab4:
     if is_admin:
         st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
