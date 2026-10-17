@@ -72,7 +72,6 @@ def inicializar_tabelas():
             s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
             s.commit()
 
-            # Tabela de registros com coluna 'lancado_por'
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS registros_vacinacao (
                     id SERIAL PRIMARY KEY,
@@ -193,7 +192,6 @@ if not st.session_state.logado:
             else:
                 st.sidebar.warning("Preencha todos os campos.")
 
-    # --- CSS PARA COMPACTAR E ELIMINAR O TOPO ---
     st.markdown("""
         <style>
             .block-container {
@@ -208,7 +206,6 @@ if not st.session_state.logado:
                 max-height: 98vh;
                 object-fit: contain;
             }
-            /* Reduz o espaçamento e padding das tabelas/grids para aproximar as colunas */
             th, td {
                 padding-left: 4px !important;
                 padding-right: 4px !important;
@@ -228,7 +225,6 @@ st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
-# --- ALTERAR SENHA NA BARRA LATERAL ---
 with st.sidebar.expander("🔑 Alterar Minha Senha"):
     senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
     nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
@@ -272,7 +268,6 @@ if st.sidebar.button("🚪 Sair / Desconectar"):
 
 is_admin = (st.session_state.perfil == "Administrador")
 
-# --- PAINEL DE CADASTRO DE PERFIS (ADMINS) ---
 if is_admin:
     with st.sidebar.expander("👤 Cadastrar Novo Usuário"):
         novo_user = st.text_input("Novo Usuário", key="cad_user")
@@ -322,7 +317,6 @@ if is_admin:
 else: 
     tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Histórico Dias D (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
-# --- TAB 1: LANÇAMENTO POR POSTO ---
 with tab1:
     def obter_turno_automatico():
         try:
@@ -433,7 +427,6 @@ with tab1:
         except Exception as e: 
             st.error(f"Erro ao salvar: {e}")
 
-# --- TAB 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
     if is_admin:
         st.markdown("### 📊 Painel de Relatório Consolidado")
@@ -442,7 +435,6 @@ with tab2:
         if col_btn1.button("🔄 Atualizar Relatório", type="secondary"):
             st.rerun()
 
-        # --- ÁREA ADMINISTRATIVA: SALVAR HISTÓRICO OU LIMPAR BANCO ---
         with st.expander("📦 Finalizar Dia D e Arquivar no Histórico"):
             st.info("Esta opção grava o relatório atual na tabela de histórico permanente para futuras pesquisas e depois limpa os lançamentos ativos para o próximo Dia D.")
             
@@ -494,7 +486,6 @@ with tab2:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
             
-            # Adiciona a coluna 'lancado_por' no agrupamento se for por estabelecimento
             if modo == "Estabelecimento (UBS)":
                 nivel = ['distrito', 'unidade_saude', 'lancado_por']
             else:
@@ -513,8 +504,9 @@ with tab2:
                     
                     if modo == "Estabelecimento (UBS)":
                         soma_distrito = cons.groupby(level=0).sum()
-                        soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_distrito.index])
-                        cons = pd.concat([cons, soma_distrito]).sort_index()
+                        if not soma_distrito.empty:
+                            soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_distrito.index])
+                            cons = pd.concat([cons, soma_distrito]).sort_index()
                     
                     if isinstance(nivel, list):
                         linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
@@ -549,8 +541,9 @@ with tab2:
             
             if modo == "Estabelecimento (UBS)":
                 soma_geral_distrito = df_geral.groupby(level=0).sum()
-                soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_geral_distrito.index])
-                df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
+                if not soma_geral_distrito.empty:
+                    soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_geral_distrito.index])
+                    df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
             if isinstance(nivel, list):
                 linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
@@ -688,7 +681,6 @@ with tab2:
     else: 
         st.warning("🔒 Acesso restrito apenas para administradores.")
 
-# --- TAB 3: HISTÓRICO DIAS D (EXCLUSIVO PARA ADMINS) ---
 with tab3:
     if is_admin:
         st.markdown("### 📜 Consulta ao Histórico de Dias D Realizados")
@@ -731,11 +723,12 @@ with tab3:
                         cons_h['TOTAL'] = cons_h.sum(axis=1)
                         if modo_h == "Estabelecimento (UBS)":
                             soma_dist_h = cons_h.groupby(level=0).sum()
-                            if len(lista_nivel_h) == 3:
-                                soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_dist_h.index])
-                            else:
-                                soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
-                            cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
+                            if not soma_dist_h.empty:
+                                if len(lista_nivel_h) == 3:
+                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_dist_h.index])
+                                else:
+                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
+                                cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
                         
                         if isinstance(nivel_h, list):
                             linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
@@ -773,11 +766,12 @@ with tab3:
                 
                 if modo_h == "Estabelecimento (UBS)":
                     soma_g_dist_h = df_geral_h.groupby(level=0).sum()
-                    if len(lista_nivel_h) == 3:
-                        soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_g_dist_h.index])
-                    else:
-                        soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
-                    df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
+                    if not soma_g_dist_h.empty:
+                        if len(lista_nivel_h) == 3:
+                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_g_dist_h.index])
+                        else:
+                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
+                        df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
 
                 if isinstance(nivel_h, list):
                     linhas_ubs_h = [idx for idx in df_geral_h.index if idx[1] != "TOTAL DISTRITO"]
@@ -806,7 +800,6 @@ with tab3:
     else:
         st.warning("🔒 Acesso restrito apenas para administradores.")
 
-# --- TAB 4: GERENCIAR USUÁRIOS ---
 with tab4:
     if is_admin:
         st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
