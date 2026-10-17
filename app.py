@@ -4,6 +4,7 @@ from sqlalchemy import text
 import io
 import os
 import hashlib
+import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from reportlab.lib.pagesizes import letter, landscape
@@ -28,12 +29,13 @@ ubs_por_distrito = {
     "Distrito 4": ["Cachoeira", "Contendas", "Mutirão", "Pirpiri", "Tananduba"]
 }
 
-# --- FUNÇÃO PARA CRIAR OU ATUALIZAR A TABELA DE USUÁRIOS NO BANCO ---
-def inicializar_tabela_usuarios():
+# --- FUNÇÃO PARA CRIAR OU ATUALIZAR TABELAS NO BANCO ---
+def inicializar_tabelas():
     if conn is None:
         return
     try:
         with conn.session as s:
+            # Tabela de usuários
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id SERIAL PRIMARY KEY,
@@ -57,6 +59,19 @@ def inicializar_tabela_usuarios():
             s.execute(text("UPDATE usuarios SET ubs = 'Geral' WHERE ubs IS NULL OR ubs = ''"))
             s.commit()
 
+            # Tabela de Histórico de Dias D
+            s.execute(text("""
+                CREATE TABLE IF NOT EXISTS historico_dias_d (
+                    id SERIAL PRIMARY KEY,
+                    data_evento DATE NOT NULL,
+                    nome_campanha VARCHAR(150) NOT NULL,
+                    dados_json TEXT NOT NULL,
+                    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            s.commit()
+
+            # Usuário padrão Admin
             senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
             res = s.execute(text("SELECT COUNT(*) FROM usuarios WHERE username = 'admin'")).fetchone()
             if res[0] == 0:
@@ -68,7 +83,7 @@ def inicializar_tabela_usuarios():
     except Exception as e:
         pass
 
-inicializar_tabela_usuarios()
+inicializar_tabelas()
 
 # --- CONTROLE DE SESSÃO E LOGIN ---
 if "logado" not in st.session_state:
@@ -177,7 +192,7 @@ st.sidebar.success(f"Logado como: **{st.session_state.username}**\n\nPerfil: **{
 if st.session_state.perfil == "Técnico":
     st.sidebar.info(f"📍 **UBS Vinculada:**\n{st.session_state.ubs_user} ({st.session_state.distrito_user})")
 
-# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL (SE JÁ ESTIVER LOGADO) ---
+# --- ALTERAR SENHA DO PRÓPRIO UTILIZADOR NA BARRA LATERAL ---
 with st.sidebar.expander("🔑 Alterar Minha Senha"):
     senha_atual = st.text_input("Senha Atual", type="password", key="sidebar_senha_atual")
     nova_senha_1 = st.text_input("Nova Senha", type="password", key="sidebar_nova_senha1")
@@ -267,17 +282,17 @@ lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', '
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
 
 if is_admin: 
-    tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "⚙️ Gerenciar Usuários"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "📜 Histórico Dias D", "⚙️ Gerenciar Usuários"])
 else: 
-    tab1, tab2, tab3 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Histórico Dias D (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
+# --- TAB 1: LANÇAMENTO POR POSTO ---
 with tab1:
     def obter_turno_automatico():
         try:
             hora_local = datetime.now(ZoneInfo("America/Fortaleza")).hour
         except Exception:
             hora_local = datetime.now().hour
-        # Mudança para transição automática às 12h
         return "Manhã (até as 12h)" if hora_local < 12 else "Tarde (das 12h às 16h)"
 
     if not is_admin:
@@ -371,6 +386,7 @@ with tab1:
         except Exception as e: 
             st.error(f"Erro ao salvar: {e}")
 
+# --- TAB 2: RELATÓRIO CONSOLIDADO ---
 with tab2:
     if is_admin:
         st.markdown("### 📊 Painel de Relatório Consolidado")
@@ -379,8 +395,35 @@ with tab2:
         if col_btn1.button("🔄 Atualizar Relatório", type="secondary"):
             st.rerun()
 
-        with st.expander("⚠️ Área Administrativa: Limpar Banco de Dados"):
-            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor permanentemente.")
+        # --- ÁREA ADMINISTRATIVA: SALVAR HISTÓRICO OU LIMPAR BANCO ---
+        with st.expander("📦 Finalizar Dia D e Arquivar no Histórico"):
+            st.info("Esta opção grava o relatório atual na tabela de histórico permanente para futuras pesquisas e depois limpa os lançamentos ativos para o próximo Dia D.")
+            
+            data_hist = st.date_input("Data do Dia D:", value=datetime.now())
+            nome_campanha_hist = st.text_input("Nome da Campanha:", value="Dia D de Multivacinação")
+            
+            if st.button("💾 Arquivar este Dia D e Limpar Lançamentos Ativos", type="primary"):
+                try:
+                    df_banco_arq = conn.query("SELECT * FROM registros_vacinacao", ttl=0)
+                    if df_banco_arq.empty:
+                        st.warning("Não existem lançamentos ativos para arquivar!")
+                    else:
+                        json_dados = df_banco_arq.to_json(orient="records")
+                        with conn.session as s:
+                            s.execute(text("""
+                                INSERT INTO historico_dias_d (data_evento, nome_campanha, dados_json)
+                                VALUES (:data, :nome, :json_data)
+                            """), {"data": data_hist, "nome": nome_campanha_hist.strip(), "json_data": json_dados})
+                            
+                            s.execute(text("DELETE FROM registros_vacinacao"))
+                            s.commit()
+                        st.success(f"✅ Dia D ('{nome_campanha_hist}') arquivado no histórico com sucesso e dados ativos limpos!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao arquivar Dia D: {e}")
+
+        with st.expander("⚠️ Área Administrativa: Limpar Lançamentos Sem Arquivar"):
+            st.warning("Atenção: Esta ação irá apagar **todos** os lançamentos salvos no servidor sem salvar no histórico.")
             confirmacao = st.checkbox("Sim, tenho certeza que desejo apagar todo o histórico de lançamentos.", key="chk_limpar_banco")
             if st.button("🗑️ Apagar Todos os Dados do Servidor", type="primary"):
                 if confirmacao:
@@ -420,9 +463,18 @@ with tab2:
                         soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
                         cons = pd.concat([cons, soma_distrito]).sort_index()
                     
-                    tabelas_turnos[t] = cons
+                    # Cálculo e adição da linha de Total Parcial do Turno
+                    if isinstance(nivel, list):
+                        linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
+                        tot_turno_s = cons.loc[linhas_ubs_t].sum(numeric_only=True)
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                    else:
+                        tot_turno_s = cons.sum(numeric_only=True)
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
+
+                    tabelas_turnos[t] = cons_com_total
                     st.markdown(f"#### ⏰ {t}")
-                    st.dataframe(cons, use_container_width=True)
+                    st.dataframe(cons_com_total, use_container_width=True)
             
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
@@ -484,28 +536,17 @@ with tab2:
             styles = getSampleStyleSheet()
             
             title_style = ParagraphStyle(
-                'TitleStyle',
-                parent=styles['Heading1'],
-                fontSize=13,
-                textColor=colors.HexColor('#1f77b4'),
-                alignment=1,
-                spaceAfter=6
+                'TitleStyle', parent=styles['Heading1'], fontSize=13, textColor=colors.HexColor('#1f77b4'), alignment=1, spaceAfter=6
             )
-            
             section_style = ParagraphStyle(
-                'SectionStyle',
-                parent=styles['Heading2'],
-                fontSize=9,
-                textColor=colors.HexColor('#333333'),
-                spaceBefore=4,
-                spaceAfter=2
+                'SectionStyle', parent=styles['Heading2'], fontSize=9, textColor=colors.HexColor('#333333'), spaceBefore=4, spaceAfter=2
             )
             
             elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
             elements.append(Spacer(1, 2))
             
             for t_nome, df_t_val in tabelas_turnos.items():
-                elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                elements.append(Paragraph(f"<b>Turno: {t_nome} (Com Totais Parciais)</b>", section_style))
                 df_t_pdf = df_t_val.reset_index()
                 if isinstance(nivel, list):
                     df_t_pdf.columns.values[0] = "Distrito"
@@ -514,7 +555,6 @@ with tab2:
                     df_t_pdf.columns.values[0] = "Distrito"
                 
                 table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
-                
                 t_turn = Table(table_data_t)
                 t_turn.setStyle(TableStyle([
                     ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
@@ -527,6 +567,8 @@ with tab2:
                     ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9f9f9')),
                     ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
                     ('FONTSIZE', (0,1), (-1,-1), 6),
+                    ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#e0e0e0')),
+                    ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
                 ]))
                 elements.append(t_turn)
                 elements.append(Spacer(1, 3))
@@ -540,7 +582,6 @@ with tab2:
                 df_pdf.columns.values[0] = "Distrito"
 
             table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
-            
             t = Table(table_data)
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ca02c')),
@@ -573,7 +614,108 @@ with tab2:
     else: 
         st.warning("🔒 Acesso restrito apenas para administradores.")
 
+# --- TAB 3: HISTÓRICO DIAS D (EXCLUSIVO PARA ADMINS) ---
 with tab3:
+    if is_admin:
+        st.markdown("### 📜 Consulta ao Histórico de Dias D Realizados")
+        try:
+            df_lista_hist = conn.query("SELECT id, data_evento, nome_campanha, criado_em FROM historico_dias_d ORDER BY data_evento DESC", ttl=0)
+        except:
+            df_lista_hist = pd.DataFrame()
+            
+        if not df_lista_hist.empty:
+            opcoes = [f"ID {r['id']} | {r['data_evento']} - {r['nome_campanha']}" for _, r in df_lista_hist.iterrows()]
+            sel_evento = st.selectbox("Selecione a Campanha Passada para Pesquisar:", opcoes)
+            
+            id_sel = int(sel_evento.split(" | ")[0].replace("ID ", ""))
+            
+            df_evento = conn.query("SELECT * FROM historico_dias_d WHERE id = :id", params={"id": id_sel}, ttl=0)
+            
+            if not df_evento.empty:
+                raw_json = df_evento.iloc[0]["dados_json"]
+                df_banco_hist = pd.read_json(io.StringIO(raw_json))
+                
+                st.success(f"📅 **Campanha:** {df_evento.iloc[0]['nome_campanha']} | **Data:** {df_evento.iloc[0]['data_evento']}")
+                
+                df_banco_hist['GRUPO_TURNO'] = df_banco_hist['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
+                modo_h = st.radio("🔍 Visualizar por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_hist")
+                nivel_h = 'distrito' if modo_h == "Distrito" else ['distrito', 'unidade_saude']
+                lista_nivel_h = [nivel_h] if isinstance(nivel_h, str) else nivel_h
+                
+                tabelas_turnos_h = {}
+                turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
+                
+                for t in turnos_lista_h:
+                    df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
+                    if not df_t_h.empty:
+                        cons_h = df_t_h.groupby(lista_nivel_h + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                        cons_h['TOTAL'] = cons_h.sum(axis=1)
+                        if modo_h == "Estabelecimento (UBS)":
+                            soma_dist_h = cons_h.groupby(level=0).sum()
+                            soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
+                            cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
+                        
+                        # Total Parcial do Turno no Histórico
+                        if isinstance(nivel_h, list):
+                            linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
+                            tot_turno_sh = cons_h.loc[linhas_ubs_th].sum(numeric_only=True)
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                        else:
+                            tot_turno_sh = cons_h.sum(numeric_only=True)
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
+
+                        tabelas_turnos_h[t] = cons_h_com_total
+                        st.markdown(f"#### ⏰ {t}")
+                        st.dataframe(cons_h_com_total, use_container_width=True)
+                
+                df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
+                tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
+                
+                for v in lista_descontos:
+                    if v not in tabela_h.columns: 
+                        tabela_h[v] = 0
+                
+                rotina_tot_h = df_banco_hist[~df_banco_hist['vacina'].isin(lista_covid)].groupby(nivel_h)['quantidade'].sum()
+                soma_desc_h = tabela_h[lista_descontos].sum(axis=1)
+                df_geral_h = pd.DataFrame(index=tabela_h.index)
+                df_geral_h['ROTINA (OUTRAS)'] = (rotina_tot_h - soma_desc_h).reindex(df_geral_h.index).fillna(0)
+                for v in lista_descontos: 
+                    df_geral_h[v] = tabela_h[v]
+                
+                cols_covid_h = [c for c in tabela_h.columns if c in lista_covid]
+                df_geral_h['COVID'] = tabela_h[cols_covid_h].sum(axis=1) if cols_covid_h else 0
+                df_geral_h['TOTAL GERAL'] = df_geral_h['ROTINA (OUTRAS)'] + soma_desc_h + df_geral_h['COVID']
+                
+                if modo_h == "Estabelecimento (UBS)":
+                    soma_g_dist_h = df_geral_h.groupby(level=0).sum()
+                    soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
+                    df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
+
+                if isinstance(nivel_h, list):
+                    linhas_ubs_h = [idx for idx in df_geral_h.index if idx[1] != "TOTAL DISTRITO"]
+                    tot_final_h = df_geral_h.loc[linhas_ubs_h].sum(numeric_only=True)
+                else:
+                    tot_final_h = df_geral_h.sum(numeric_only=True)
+
+                df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: 'TOTAL FINAL'})])
+                st.markdown("### 🏁 Total Geral da Campanha Arquivada")
+                st.dataframe(df_geral_com_total_h, use_container_width=True)
+                
+                # Botão para excluir registro de histórico específico
+                with st.expander("🗑️ Excluir este Histórico"):
+                    if st.button(f"Confirmar Exclusão do Registro ID {id_sel}", type="primary"):
+                        with conn.session as s:
+                            s.execute(text("DELETE FROM historico_dias_d WHERE id = :id"), {"id": id_sel})
+                            s.commit()
+                        st.success("Registro excluído com sucesso!")
+                        st.rerun()
+        else:
+            st.info("Nenhum Dia D arquivado no histórico até o momento.")
+    else:
+        st.warning("🔒 Acesso restrito apenas para administradores.")
+
+# --- TAB 4: GERENCIAR USUÁRIOS ---
+with tab4:
     if is_admin:
         st.markdown("### 👥 Gerenciamento de Usuários Cadastrados")
         try:
