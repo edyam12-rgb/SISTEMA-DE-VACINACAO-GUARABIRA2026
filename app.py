@@ -48,7 +48,7 @@ def destacar_linhas_tabela(df):
 
     return df.style.apply(aplicar_cor_linha, axis=1).format(formatadores, na_rep="0")
 
-# --- FUNÇÃO PARA INSERIR SUBTOTAIS MANTENDO DADOS DAS UBS PRIMEIRO ---
+# --- FUNÇÃO PARA INSERIR SUBTOTAIS EXIBINDO APENAS UBS COM LANÇAMENTOS ---
 def organizar_com_subtotais(df_origem, modo, incluir_informado_por=True):
     if modo != "Estabelecimento (UBS)":
         tot_dists = df_origem.groupby(level=0).sum(numeric_only=True).astype(int)
@@ -57,42 +57,42 @@ def organizar_com_subtotais(df_origem, modo, incluir_informado_por=True):
         return pd.concat([df_origem, tot_turno])
 
     linhas_finais = []
-    
+    cols_num = [c for c in df_origem.columns if c != 'INFORMADO POR']
+
     for dist_nome, ubs_lista in ubs_por_distrito.items():
-        # Filtra registros ativos do distrito
         df_dist = df_origem[df_origem.index.get_level_values(0) == dist_nome]
         
-        # Garante a presença de todas as UBSs do distrito no relatório
+        # Filtra e inclui apenas as UBSs do distrito que possuem lançamento (soma > 0)
+        tem_lancamento_dist = False
         for ubs in ubs_lista:
             if (dist_nome, ubs) in df_dist.index:
-                row_data = df_dist.loc[(dist_nome, ubs)].to_dict()
-                row_data['distrito'] = dist_nome
-                row_data['unidade_saude'] = ubs
-                linhas_finais.append(row_data)
-            else:
-                row_empty = {col: 0 for col in df_origem.columns if col != 'INFORMADO POR'}
-                if incluir_informado_por:
-                    row_empty['INFORMADO POR'] = '-'
-                row_empty['distrito'] = dist_nome
-                row_empty['unidade_saude'] = ubs
-                linhas_finais.append(row_empty)
-                
-        # Calcula Subtotal do Distrito
-        df_sub = df_dist.drop(columns=['INFORMADO POR'], errors='ignore')
-        soma_sub = df_sub.sum(numeric_only=True).astype(int).to_dict()
-        soma_sub['distrito'] = dist_nome
-        soma_sub['unidade_saude'] = 'TOTAL DISTRITO'
-        if incluir_informado_por:
-            soma_sub['INFORMADO POR'] = '-'
-        linhas_finais.append(soma_sub)
+                row_s = df_dist.loc[(dist_nome, ubs)]
+                soma_linha = row_s[cols_num].sum() if isinstance(row_s, pd.Series) else row_s[cols_num].iloc[0].sum()
+                if soma_linha > 0:
+                    tem_lancamento_dist = True
+                    row_data = row_s.to_dict() if isinstance(row_s, pd.Series) else row_s.iloc[0].to_dict()
+                    row_data['distrito'] = dist_nome
+                    row_data['unidade_saude'] = ubs
+                    linhas_finais.append(row_data)
+
+        # Se houver lançamentos no distrito, insere a linha TOTAL DISTRITO
+        if tem_lancamento_dist:
+            df_sub = df_dist.drop(columns=['INFORMADO POR'], errors='ignore')
+            soma_sub = df_sub.sum(numeric_only=True).astype(int).to_dict()
+            soma_sub['distrito'] = dist_nome
+            soma_sub['unidade_saude'] = 'TOTAL DISTRITO'
+            if incluir_informado_por:
+                soma_sub['INFORMADO POR'] = '-'
+            linhas_finais.append(soma_sub)
+
+    if not linhas_finais:
+        return pd.DataFrame()
 
     df_res = pd.DataFrame(linhas_finais).set_index(['distrito', 'unidade_saude'])
     
-    # Adiciona a linha Total Final / Parcial ao fim de tudo
     linhas_ubs_apenas = df_res[df_res.index.get_level_values(1) != 'TOTAL DISTRITO']
-    cols_num = [c for c in df_res.columns if c != 'INFORMADO POR']
-    
     tot_geral = linhas_ubs_apenas[cols_num].sum(numeric_only=True).astype(int).to_dict()
+    
     if incluir_informado_por:
         tot_geral['INFORMADO POR'] = '-'
         tot_geral['distrito'] = 'TOTAL PARCIAL'
@@ -153,7 +153,6 @@ def inicializar_tabelas():
             except:
                 s.rollback()
 
-            # Padroniza eventuais variações do nome do posto no banco ativo
             s.execute(text("UPDATE registros_vacinacao SET unidade_saude = 'Pirpiri' WHERE LOWER(unidade_saude) LIKE 'pirpiri%'"))
             s.execute(text("UPDATE usuarios SET ubs = 'Pirpiri' WHERE LOWER(ubs) LIKE 'pirpiri%'"))
             s.commit()
@@ -552,9 +551,13 @@ with tab2:
                         
                     cons_com_total = organizar_com_subtotais(cons, modo, incluir_informado_por=(modo == "Estabelecimento (UBS)"))
 
-                    tabelas_turnos[t] = cons_com_total
-                    st.markdown(f"#### ⏰ {t} - Visão por Grupo")
-                    st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
+                    if not cons_com_total.empty:
+                        tabelas_turnos[t] = cons_com_total
+                        st.markdown(f"#### ⏰ {t} - Visão por Grupo")
+                        st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
+                    else:
+                        st.markdown(f"#### ⏰ {t} - Visão por Grupo")
+                        st.info(f"Nenhum lançamento efetuado no turno da {t.split()[0]}.")
                 else:
                     st.markdown(f"#### ⏰ {t} - Visão por Grupo")
                     st.info(f"Nenhum lançamento efetuado no turno da {t.split()[0]}.")
@@ -764,9 +767,13 @@ with tab3:
 
                         cons_h_com_total = organizar_com_subtotais(cons_h, modo_h, incluir_informado_por=(modo_h == "Estabelecimento (UBS)"))
 
-                        tabelas_turnos_h[t] = cons_h_com_total
-                        st.markdown(f"#### ⏰ {t} (Histórico)")
-                        st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
+                        if not cons_h_com_total.empty:
+                            tabelas_turnos_h[t] = cons_h_com_total
+                            st.markdown(f"#### ⏰ {t} (Histórico)")
+                            st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
+                        else:
+                            st.markdown(f"#### ⏰ {t} (Histórico)")
+                            st.info(f"Nenhum lançamento no turno da {t.split()[0]}.")
                     else:
                         st.markdown(f"#### ⏰ {t} (Histórico)")
                         st.info(f"Nenhum lançamento no turno da {t.split()[0]}.")
