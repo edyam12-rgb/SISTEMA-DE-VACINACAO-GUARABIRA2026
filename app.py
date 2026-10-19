@@ -472,7 +472,10 @@ with tab2:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
                     cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
-                    cons['TOTAL'] = cons.sum(axis=1)
+                    for grp in ['ROTINA', 'COVID']:
+                        if grp not in cons.columns:
+                            cons[grp] = 0
+                    cons['TOTAL'] = cons['ROTINA'] + cons['COVID']
                     
                     if modo == "Estabelecimento (UBS)":
                         soma_distrito = cons.groupby(level=0).sum()
@@ -495,6 +498,9 @@ with tab2:
                     tabelas_turnos[t] = cons_com_total
                     st.markdown(f"#### ⏰ {t} - Visão por Grupo")
                     st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
+                else:
+                    st.markdown(f"#### ⏰ {t} - Visão por Grupo")
+                    st.info(f"Nenhum lançamento efetuado no turno da {t.split()[0]}.")
 
             st.markdown("---")
 
@@ -716,7 +722,11 @@ with tab3:
                     df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
                     if not df_t_h.empty:
                         cons_h = df_t_h.groupby(lista_nivel_h + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
-                        cons_h['TOTAL'] = cons_h.sum(axis=1)
+                        for grp in ['ROTINA', 'COVID']:
+                            if grp not in cons_h.columns:
+                                cons_h[grp] = 0
+                        cons_h['TOTAL'] = cons_h['ROTINA'] + cons_h['COVID']
+                        
                         if modo_h == "Estabelecimento (UBS)":
                             soma_dist_h = cons_h.groupby(level=0).sum()
                             if not soma_dist_h.empty:
@@ -737,6 +747,9 @@ with tab3:
 
                         st.markdown(f"#### ⏰ {t} (Histórico)")
                         st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
+                    else:
+                        st.markdown(f"#### ⏰ {t} (Histórico)")
+                        st.info(f"Nenhum lançamento no turno da {t.split()[0]}.")
 
                 st.markdown("---")
 
