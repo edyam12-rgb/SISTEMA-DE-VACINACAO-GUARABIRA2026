@@ -41,7 +41,13 @@ def destacar_linhas_tabela(df):
             return ['background-color: #d1ecf1; color: #0c5460; font-weight: bold; font-size: 11px;'] * len(row)
         return ['font-size: 11px;'] * len(row)
 
-    return df.style.apply(aplicar_cor_linha, axis=1)
+    # Formata colunas numéricas sem casas decimais se existirem no DataFrame
+    formatadores = {}
+    for col in df.columns:
+        if col != 'INFORMADO POR':
+            formatadores[col] = "{:,}".format
+
+    return df.style.apply(aplicar_cor_linha, axis=1).format(formatadores, na_rep="0")
 
 # --- FUNÇÃO PARA CRIAR OU ATUALIZAR TABELAS NO BANCO ---
 def inicializar_tabelas():
@@ -317,12 +323,12 @@ with tab1:
         for _, r in df_existente.iterrows(): 
             v_nome = r["vacina"]
             if v_nome in dic_val: 
-                dic_val[v_nome] = r["quantidade"]
+                dic_val[v_nome] = int(r["quantidade"])
             
     df_tela_aux = []
     for v in lista_todas_vacinas:
         tipo_label = "🦠 COVID-19" if v in lista_covid else "💉 Rotina"
-        df_tela_aux.append({"TIPO": tipo_label, "VACINA": v, "QUANTIDADE": dic_val[v]})
+        df_tela_aux.append({"TIPO": tipo_label, "VACINA": v, "QUANTIDADE": int(dic_val[v])})
         
     df_tela = pd.DataFrame(df_tela_aux)
 
@@ -335,8 +341,8 @@ with tab1:
     tem_pendencia = False
     for vac, qtd_tela in dict_tela.items():
         qtd_banco = dict_banco.get(vac, 0)
-        q_t = float(qtd_tela) if pd.notna(qtd_tela) else 0.0
-        q_b = float(qtd_banco) if pd.notna(qtd_banco) else 0.0
+        q_t = int(qtd_tela) if pd.notna(qtd_tela) else 0
+        q_b = int(qtd_banco) if pd.notna(qtd_banco) else 0
         if q_t != q_b:
             tem_pendencia = True
             break
@@ -386,7 +392,7 @@ with tab1:
                         "ubs": st.session_state.sel_ubs_ativo, 
                         "turno": st.session_state.sel_turno_ativo, 
                         "vacina": row["VACINA"], 
-                        "quantidade": row["QUANTIDADE"],
+                        "quantidade": int(row["QUANTIDADE"]),
                         "user": usuario_atual
                     })
                 s.commit()
@@ -456,6 +462,7 @@ with tab2:
             else:
                 df_banco['lancado_por'] = df_banco['lancado_por'].fillna('Não Informado').replace('', 'Não Informado')
 
+            df_banco['quantidade'] = df_banco['quantidade'].fillna(0).astype(int)
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
             
@@ -474,12 +481,13 @@ with tab2:
                         if grp not in cons.columns:
                             cons[grp] = 0
                     cons['TOTAL'] = cons['ROTINA'] + cons['COVID']
+                    cons = cons.astype(int)
                     
                     if modo == "Estabelecimento (UBS)":
                         dict_usr_t = df_t.groupby(['distrito', 'unidade_saude'])['lancado_por'].unique().apply(lambda u: ", ".join(sorted(set(u)))).to_dict()
                         cons['INFORMADO POR'] = [dict_usr_t.get(idx, '-') for idx in cons.index]
                         
-                        soma_distrito = cons[['ROTINA', 'COVID', 'TOTAL']].groupby(level=0).sum()
+                        soma_distrito = cons[['ROTINA', 'COVID', 'TOTAL']].groupby(level=0).sum().astype(int)
                         if not soma_distrito.empty:
                             soma_distrito['INFORMADO POR'] = '-'
                             soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
@@ -487,13 +495,13 @@ with tab2:
                     
                     if isinstance(nivel, list):
                         linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
-                        tot_turno_s = cons.loc[linhas_ubs_t, ['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True)
+                        tot_turno_s = cons.loc[linhas_ubs_t, ['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).astype(int)
                         row_tot = tot_turno_s.to_frame().T
                         if modo == "Estabelecimento (UBS)":
                             row_tot['INFORMADO POR'] = '-'
                         cons_com_total = pd.concat([cons, row_tot.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
                     else:
-                        tot_turno_s = cons[['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True)
+                        tot_turno_s = cons[['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).astype(int)
                         cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
 
                     tabelas_turnos[t] = cons_com_total
@@ -506,7 +514,7 @@ with tab2:
             st.markdown("---")
 
             # --- 1. ÚNICO TOTAL GERAL POR VACINA DO MUNICÍPIO (SOMA DOS DOIS TURNOS) ---
-            tot_geral_vac = df_banco.groupby('vacina')['quantidade'].sum().to_frame().T
+            tot_geral_vac = df_banco.groupby('vacina')['quantidade'].sum().astype(int).to_frame().T
             tot_geral_vac.index = ['TOTAL MUNICÍPIO']
             
             st.markdown("### 💉 Total Geral por Vacina (Município)")
@@ -515,35 +523,35 @@ with tab2:
 
             # --- 2. TOTAL GERAL DETALHADO POR UNIDADE (SEM A COLUNA INFORMADO POR) ---
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
-            tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False)
+            tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False).astype(int)
             
             for v in lista_descontos:
                 if v not in tabela.columns: 
                     tabela[v] = 0
             
-            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel, dropna=False)['quantidade'].sum()
-            soma_descontos = tabela[lista_descontos].sum(axis=1)
+            rotina_total = df_banco[~df_banco['vacina'].isin(lista_covid)].groupby(nivel, dropna=False)['quantidade'].sum().astype(int)
+            soma_descontos = tabela[lista_descontos].sum(axis=1).astype(int)
             df_geral = pd.DataFrame(index=tabela.index)
-            df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0)
+            df_geral['ROTINA (OUTRAS)'] = (rotina_total - soma_descontos).reindex(df_geral.index).fillna(0).astype(int)
             for v in lista_descontos: 
-                df_geral[v] = tabela[v]
+                df_geral[v] = tabela[v].astype(int)
             
             cols_covid_presentes = [c for c in tabela.columns if c in lista_covid]
-            df_geral['COVID'] = tabela[cols_covid_presentes].sum(axis=1) if cols_covid_presentes else 0
-            df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
+            df_geral['COVID'] = tabela[cols_covid_presentes].sum(axis=1).astype(int) if cols_covid_presentes else 0
+            df_geral['TOTAL GERAL'] = (df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']).astype(int)
             
             if modo == "Estabelecimento (UBS)":
-                soma_geral_distrito = df_geral.groupby(level=0).sum()
+                soma_geral_distrito = df_geral.groupby(level=0).sum().astype(int)
                 if not soma_geral_distrito.empty:
                     soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
                     df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
             if isinstance(nivel, list):
                 linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
-                total_final_serie = df_geral.loc[linhas_ubs].sum(numeric_only=True).to_frame().T
+                total_final_serie = df_geral.loc[linhas_ubs].sum(numeric_only=True).astype(int).to_frame().T
                 idx_total_final = ('TOTAL FINAL', '')
             else:
-                total_final_serie = df_geral.sum(numeric_only=True).to_frame().T
+                total_final_serie = df_geral.sum(numeric_only=True).astype(int).to_frame().T
                 idx_total_final = 'TOTAL FINAL'
 
             df_geral_com_total = pd.concat([df_geral, total_final_serie.rename(index={0: idx_total_final})])
@@ -695,6 +703,7 @@ with tab3:
                 else:
                     df_banco_hist['lancado_por'] = df_banco_hist['lancado_por'].fillna('Não Informado').replace('', 'Não Informado')
 
+                df_banco_hist['quantidade'] = df_banco_hist['quantidade'].fillna(0).astype(int)
                 st.success(f"📅 **Campanha:** {df_evento.iloc[0]['nome_campanha']} | **Data:** {df_evento.iloc[0]['data_evento']}")
                 
                 df_banco_hist['GRUPO_TURNO'] = df_banco_hist['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
@@ -714,12 +723,13 @@ with tab3:
                             if grp not in cons_h.columns:
                                 cons_h[grp] = 0
                         cons_h['TOTAL'] = cons_h['ROTINA'] + cons_h['COVID']
+                        cons_h = cons_h.astype(int)
                         
                         if modo_h == "Estabelecimento (UBS)":
                             dict_usr_th = df_t_h.groupby(['distrito', 'unidade_saude'])['lancado_por'].unique().apply(lambda u: ", ".join(sorted(set(u)))).to_dict()
                             cons_h['INFORMADO POR'] = [dict_usr_th.get(idx, '-') for idx in cons_h.index]
 
-                            soma_dist_h = cons_h[['ROTINA', 'COVID', 'TOTAL']].groupby(level=0).sum()
+                            soma_dist_h = cons_h[['ROTINA', 'COVID', 'TOTAL']].groupby(level=0).sum().astype(int)
                             if not soma_dist_h.empty:
                                 soma_dist_h['INFORMADO POR'] = '-'
                                 soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
@@ -727,12 +737,12 @@ with tab3:
                         
                         if isinstance(nivel_h, list):
                             linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
-                            tot_turno_sh = cons_h.loc[linhas_ubs_th, ['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).to_frame().T
+                            tot_turno_sh = cons_h.loc[linhas_ubs_th, ['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).astype(int).to_frame().T
                             if modo_h == "Estabelecimento (UBS)":
                                 tot_turno_sh['INFORMADO POR'] = '-'
                             cons_h_com_total = pd.concat([cons_h, tot_turno_sh.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
                         else:
-                            tot_turno_sh = cons_h[['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True)
+                            tot_turno_sh = cons_h[['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).astype(int)
                             cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
 
                         st.markdown(f"#### ⏰ {t} (Histórico)")
@@ -744,7 +754,7 @@ with tab3:
                 st.markdown("---")
 
                 # --- ÚNICO TOTAL GERAL POR VACINA DO HISTÓRICO (SOMA MUNICIPAL) ---
-                tot_geral_vac_h = df_banco_hist.groupby('vacina')['quantidade'].sum().to_frame().T
+                tot_geral_vac_h = df_banco_hist.groupby('vacina')['quantidade'].sum().astype(int).to_frame().T
                 tot_geral_vac_h.index = ['TOTAL MUNICÍPIO']
                 st.markdown("### 💉 Total Geral por Vacina (Histórico)")
                 st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
@@ -752,35 +762,35 @@ with tab3:
 
                 # Total Geral Detalhado da Campanha Arquivada (SEM A COLUNA INFORMADO POR)
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
-                tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False)
+                tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False).astype(int)
                 
                 for v in lista_descontos:
                     if v not in tabela_h.columns: 
                         tabela_h[v] = 0
                 
-                rotina_tot_h = df_banco_hist[~df_banco_hist['vacina'].isin(lista_covid)].groupby(nivel_h, dropna=False)['quantidade'].sum()
-                soma_desc_h = tabela_h[lista_descontos].sum(axis=1)
+                rotina_tot_h = df_banco_hist[~df_banco_hist['vacina'].isin(lista_covid)].groupby(nivel_h, dropna=False)['quantidade'].sum().astype(int)
+                soma_desc_h = tabela_h[lista_descontos].sum(axis=1).astype(int)
                 df_geral_h = pd.DataFrame(index=tabela_h.index)
-                df_geral_h['ROTINA (OUTRAS)'] = (rotina_tot_h - soma_desc_h).reindex(df_geral_h.index).fillna(0)
+                df_geral_h['ROTINA (OUTRAS)'] = (rotina_tot_h - soma_desc_h).reindex(df_geral_h.index).fillna(0).astype(int)
                 for v in lista_descontos: 
-                    df_geral_h[v] = tabela_h[v]
+                    df_geral_h[v] = tabela_h[v].astype(int)
                 
                 cols_covid_h = [c for c in tabela_h.columns if c in lista_covid]
-                df_geral_h['COVID'] = tabela_h[cols_covid_h].sum(axis=1) if cols_covid_h else 0
-                df_geral_h['TOTAL GERAL'] = df_geral_h['ROTINA (OUTRAS)'] + soma_desc_h + df_geral_h['COVID']
+                df_geral_h['COVID'] = tabela_h[cols_covid_h].sum(axis=1).astype(int) if cols_covid_h else 0
+                df_geral_h['TOTAL GERAL'] = (df_geral_h['ROTINA (OUTRAS)'] + soma_desc_h + df_geral_h['COVID']).astype(int)
                 
                 if modo_h == "Estabelecimento (UBS)":
-                    soma_g_dist_h = df_geral_h.groupby(level=0).sum()
+                    soma_g_dist_h = df_geral_h.groupby(level=0).sum().astype(int)
                     if not soma_g_dist_h.empty:
                         soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
                         df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
 
                 if isinstance(nivel_h, list):
                     linhas_ubs_h = [idx for idx in df_geral_h.index if idx[1] != "TOTAL DISTRITO"]
-                    tot_final_h = df_geral_h.loc[linhas_ubs_h].sum(numeric_only=True).to_frame().T
+                    tot_final_h = df_geral_h.loc[linhas_ubs_h].sum(numeric_only=True).astype(int).to_frame().T
                     idx_tf_h = ('TOTAL FINAL', '')
                 else:
-                    tot_final_h = df_geral_h.sum(numeric_only=True).to_frame().T
+                    tot_final_h = df_geral_h.sum(numeric_only=True).astype(int).to_frame().T
                     idx_tf_h = 'TOTAL FINAL'
 
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.rename(index={0: idx_tf_h})])
