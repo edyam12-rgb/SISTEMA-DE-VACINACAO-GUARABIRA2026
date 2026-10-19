@@ -261,37 +261,10 @@ if st.sidebar.button("🚪 Sair / Desconectar"):
 
 is_admin = (st.session_state.perfil == "Administrador")
 
-if is_admin:
-    with st.sidebar.expander("👤 Cadastrar Novo Usuário"):
-        novo_user = st.text_input("Novo Usuário", key="cad_user")
-        nova_senha = st.text_input("Senha", type="password", key="cad_senha")
-        novo_perfil = st.selectbox("Indicar Perfil", ["Técnico", "Administrador"], key="cad_perfil")
-        
-        cad_distrito = "Geral"
-        cad_ubs = "Geral"
-        if novo_perfil == "Técnico":
-            cad_distrito = st.selectbox("Distrito do Técnico", list(ubs_por_distrito.keys()), key="cad_dist")
-            ubs_disponiveis = ubs_por_distrito.get(cad_distrito, [])
-            cad_ubs = st.selectbox("UBS do Técnico", ubs_disponiveis, key="cad_ubs_loc")
-
-        if st.button("💾 Cadastrar Usuário"):
-            if novo_user and nova_senha:
-                try:
-                    senha_hash = hashlib.sha256(nova_senha.encode()).hexdigest()
-                    with conn.session as s:
-                        s.execute(
-                            text("INSERT INTO usuarios (username, senha, perfil, distrito, ubs) VALUES (:u, :p, :pf, :d, :ub)"),
-                            {"u": novo_user.strip(), "p": senha_hash, "pf": novo_perfil, "d": cad_distrito, "ub": cad_ubs}
-                        )
-                        s.commit()
-                    st.sidebar.success(f"Usuário '{novo_user}' cadastrado com sucesso!")
-                    st.rerun()
-                except Exception as e: 
-                    st.sidebar.error("Erro ao cadastrar (usuário já existe?).")
-            else: 
-                st.sidebar.warning("Preencha todos os campos.")
-
-st.title("💉 Sistema de Lançamento de Vacinas - Dia D")
+if is_admin: 
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "📜 Histórico Dias D", "⚙️ Gerenciar Usuários"])
+else: 
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Histórico Dias D (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 lista_bruta = [
     "ACWY", "ANTIR. HUMANA", "DENGUE", "DTP", "DTPa adulto", "Dt", "F. AMARELA", 
@@ -304,11 +277,6 @@ lista_todas_vacinas = sorted(lista_bruta)
 
 lista_descontos = ['INFLUENZA', 'T. VIRAL', 'T. VIRAL 2ª DOSE', 'F. AMARELA', 'PNEUMO 20', 'DENGUE']
 lista_covid = ["PFIZER ADULTO", "PFIZER PED 06 A 4 ANOS", "PFIZER PED. 05 A 11 ANOS"]
-
-if is_admin: 
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "📊 Relatório Consolidado", "📜 Histórico Dias D", "⚙️ Gerenciar Usuários"])
-else: 
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Lançamento (Por Posto)", "🔒 Relatório Consolidado (Bloqueado)", "🔒 Histórico Dias D (Bloqueado)", "🔒 Gerenciar Usuários (Bloqueado)"])
 
 with tab1:
     def obter_turno_automatico():
@@ -483,11 +451,10 @@ with tab2:
             tabelas_turnos = {}
             turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
             
-            # --- TABELAS ORGANIZADAS POR TURNO ---
+            # --- TABELAS ORGANIZADAS POR TURNO (VISÃO POR GRUPO) ---
             for t in turnos_lista:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
-                    # 1. Visão por Grupo do Turno
                     cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
                     cons['TOTAL'] = cons.sum(axis=1)
                     
@@ -509,15 +476,17 @@ with tab2:
                     st.markdown(f"#### ⏰ {t} - Visão por Grupo")
                     st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
 
-                    # 2. Total Geral por Vacina do Turno (Município)
-                    tot_geral_vac_turno = df_t.groupby('vacina')['quantidade'].sum().to_frame().T
-                    tot_geral_vac_turno.index = ['TOTAL MUNICÍPIO']
-                    
-                    st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Município)")
-                    st.dataframe(destacar_linhas_tabela(tot_geral_vac_turno), use_container_width=True)
-                    st.markdown("---")
+            st.markdown("---")
 
-            # --- TOTAL GERAL ACUMULADO ---
+            # --- 1. ÚNICO TOTAL GERAL POR VACINA DO MUNICÍPIO (SOMA DOS DOIS TURNOS) ---
+            tot_geral_vac = df_banco.groupby('vacina')['quantidade'].sum().to_frame().T
+            tot_geral_vac.index = ['TOTAL MUNICÍPIO']
+            
+            st.markdown("### 💉 Total Geral por Vacina (Município)")
+            st.dataframe(destacar_linhas_tabela(tot_geral_vac), use_container_width=True)
+            st.markdown("---")
+
+            # --- 2. TOTAL GERAL DETALHADO POR UNIDADE (MANHÃ + TARDE) ---
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
             
@@ -552,7 +521,7 @@ with tab2:
             idx_total_final = ('TOTAL FINAL', '') if isinstance(nivel, list) else 'TOTAL FINAL'
 
             df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: idx_total_final})])
-            st.markdown("### 🏁 Total Geral Acumulado (Manhã + Tarde)")
+            st.markdown("### 🏁 Detalhamento Consolidado")
             st.dataframe(destacar_linhas_tabela(df_geral_com_total), use_container_width=True)
             
             st.markdown("---")
@@ -561,6 +530,7 @@ with tab2:
             
             buffer_xlsx = io.BytesIO()
             with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
+                tot_geral_vac.to_excel(writer, sheet_name='TOTAL_POR_VACINA')
                 for t_nome, df_t_val in tabelas_turnos.items():
                     sheet_name = t_nome.replace("(", "").replace(")", "").replace(" ", "_")[:31]
                     df_t_val.to_excel(writer, sheet_name=sheet_name)
@@ -704,7 +674,7 @@ with tab3:
                 
                 turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
                 
-                # --- HISTÓRICO ORGANIZADO POR TURNO ---
+                # --- HISTÓRICO ORGANIZADO POR TURNO (VISÃO POR GRUPO) ---
                 for t in turnos_lista_h:
                     df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
                     if not df_t_h.empty:
@@ -727,13 +697,16 @@ with tab3:
                         st.markdown(f"#### ⏰ {t} (Histórico)")
                         st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
 
-                        tot_geral_vac_h_t = df_t_h.groupby('vacina')['quantidade'].sum().to_frame().T
-                        tot_geral_vac_h_t.index = ['TOTAL MUNICÍPIO']
-                        st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Histórico)")
-                        st.dataframe(destacar_linhas_tabela(tot_geral_vac_h_t), use_container_width=True)
-                        st.markdown("---")
-                
-                # Total Geral da Campanha Arquivada
+                st.markdown("---")
+
+                # --- ÚNICO TOTAL GERAL POR VACINA DO HISTÓRICO (SOMA MUNICIPAL) ---
+                tot_geral_vac_h = df_banco_hist.groupby('vacina')['quantidade'].sum().to_frame().T
+                tot_geral_vac_h.index = ['TOTAL MUNICÍPIO']
+                st.markdown("### 💉 Total Geral por Vacina (Histórico)")
+                st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
+                st.markdown("---")
+
+                # Total Geral Detalhado da Campanha Arquivada
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
                 tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
                 
@@ -767,7 +740,7 @@ with tab3:
                 idx_tf_h = ('TOTAL FINAL', '') if isinstance(nivel_h, list) else 'TOTAL FINAL'
 
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: idx_tf_h})])
-                st.markdown("### 🏁 Detalhamento da Campanha Arquivada (Manhã + Tarde)")
+                st.markdown("### 🏁 Detalhamento da Campanha Arquivada")
                 st.dataframe(destacar_linhas_tabela(df_geral_com_total_h), use_container_width=True)
                 
                 with st.expander("🗑️ Excluir este Histórico"):
