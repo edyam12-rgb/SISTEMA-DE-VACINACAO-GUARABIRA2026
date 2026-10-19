@@ -462,13 +462,10 @@ with tab2:
             nivel = ['distrito', 'unidade_saude'] if modo == "Estabelecimento (UBS)" else 'distrito'
             lista_nivel = nivel if isinstance(nivel, list) else [nivel]
             
-            # Mapeamento para buscar os usuários que informaram cada UBS
-            dict_usuarios_ubs = df_banco.groupby(['distrito', 'unidade_saude'])['lancado_por'].unique().apply(lambda u: ", ".join(sorted(set(u)))).to_dict()
-
             tabelas_turnos = {}
             turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
             
-            # --- TABELAS ORGANIZADAS POR TURNO (VISÃO POR GRUPO) ---
+            # --- TABELAS ORGANIZADAS POR TURNO (VISÃO POR GRUPO - COM INFORMADO POR) ---
             for t in turnos_lista:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
@@ -516,7 +513,7 @@ with tab2:
             st.dataframe(destacar_linhas_tabela(tot_geral_vac), use_container_width=True)
             st.markdown("---")
 
-            # --- 2. TOTAL GERAL DETALHADO POR UNIDADE (MANHÃ + TARDE) ---
+            # --- 2. TOTAL GERAL DETALHADO POR UNIDADE (SEM A COLUNA INFORMADO POR) ---
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False)
             
@@ -536,20 +533,14 @@ with tab2:
             df_geral['TOTAL GERAL'] = df_geral['ROTINA (OUTRAS)'] + soma_descontos + df_geral['COVID']
             
             if modo == "Estabelecimento (UBS)":
-                df_geral['INFORMADO POR'] = [dict_usuarios_ubs.get(idx, '-') for idx in df_geral.index]
-                
-                soma_geral_distrito = df_geral.drop(columns=['INFORMADO POR']).groupby(level=0).sum()
+                soma_geral_distrito = df_geral.groupby(level=0).sum()
                 if not soma_geral_distrito.empty:
-                    soma_geral_distrito['INFORMADO POR'] = '-'
                     soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
                     df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
             if isinstance(nivel, list):
                 linhas_ubs = [idx for idx in df_geral.index if idx[1] != "TOTAL DISTRITO"]
-                cols_num = [c for c in df_geral.columns if c != 'INFORMADO POR']
-                total_final_serie = df_geral.loc[linhas_ubs, cols_num].sum(numeric_only=True).to_frame().T
-                if modo == "Estabelecimento (UBS)":
-                    total_final_serie['INFORMADO POR'] = '-'
+                total_final_serie = df_geral.loc[linhas_ubs].sum(numeric_only=True).to_frame().T
                 idx_total_final = ('TOTAL FINAL', '')
             else:
                 total_final_serie = df_geral.sum(numeric_only=True).to_frame().T
@@ -712,11 +703,9 @@ with tab3:
                 nivel_h = ['distrito', 'unidade_saude'] if modo_h == "Estabelecimento (UBS)" else 'distrito'
                 lista_nivel_h = nivel_h if isinstance(nivel_h, list) else [nivel_h]
                 
-                dict_usr_h_ubs = df_banco_hist.groupby(['distrito', 'unidade_saude'])['lancado_por'].unique().apply(lambda u: ", ".join(sorted(set(u)))).to_dict()
-
                 turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
                 
-                # --- HISTÓRICO ORGANIZADO POR TURNO (VISÃO POR GRUPO) ---
+                # --- HISTÓRICO ORGANIZADO POR TURNO (VISÃO POR GRUPO - COM INFORMADO POR) ---
                 for t in turnos_lista_h:
                     df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
                     if not df_t_h.empty:
@@ -761,7 +750,7 @@ with tab3:
                 st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
                 st.markdown("---")
 
-                # Total Geral Detalhado da Campanha Arquivada
+                # Total Geral Detalhado da Campanha Arquivada (SEM A COLUNA INFORMADO POR)
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
                 tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False)
                 
@@ -781,20 +770,14 @@ with tab3:
                 df_geral_h['TOTAL GERAL'] = df_geral_h['ROTINA (OUTRAS)'] + soma_desc_h + df_geral_h['COVID']
                 
                 if modo_h == "Estabelecimento (UBS)":
-                    df_geral_h['INFORMADO POR'] = [dict_usr_h_ubs.get(idx, '-') for idx in df_geral_h.index]
-
-                    soma_g_dist_h = df_geral_h.drop(columns=['INFORMADO POR']).groupby(level=0).sum()
+                    soma_g_dist_h = df_geral_h.groupby(level=0).sum()
                     if not soma_g_dist_h.empty:
-                        soma_g_dist_h['INFORMADO POR'] = '-'
                         soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
                         df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
 
                 if isinstance(nivel_h, list):
                     linhas_ubs_h = [idx for idx in df_geral_h.index if idx[1] != "TOTAL DISTRITO"]
-                    cols_num_h = [c for c in df_geral_h.columns if c != 'INFORMADO POR']
-                    tot_final_h = df_geral_h.loc[linhas_ubs_h, cols_num_h].sum(numeric_only=True).to_frame().T
-                    if modo_h == "Estabelecimento (UBS)":
-                        tot_final_h['INFORMADO POR'] = '-'
+                    tot_final_h = df_geral_h.loc[linhas_ubs_h].sum(numeric_only=True).to_frame().T
                     idx_tf_h = ('TOTAL FINAL', '')
                 else:
                     tot_final_h = df_geral_h.sum(numeric_only=True).to_frame().T
