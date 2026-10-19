@@ -41,7 +41,6 @@ def destacar_linhas_tabela(df):
             return ['background-color: #d1ecf1; color: #0c5460; font-weight: bold; font-size: 11px;'] * len(row)
         return ['font-size: 11px;'] * len(row)
 
-    # Formata colunas numéricas sem casas decimais se existirem no DataFrame
     formatadores = {}
     for col in df.columns:
         if col != 'INFORMADO POR':
@@ -472,7 +471,6 @@ with tab2:
             tabelas_turnos = {}
             turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
             
-            # --- TABELAS ORGANIZADAS POR TURNO (VISÃO POR GRUPO - COM INFORMADO POR) ---
             for t in turnos_lista:
                 df_t = df_banco[df_banco['turno'] == t]
                 if not df_t.empty:
@@ -513,7 +511,6 @@ with tab2:
 
             st.markdown("---")
 
-            # --- 1. ÚNICO TOTAL GERAL POR VACINA DO MUNICÍPIO (SOMA DOS DOIS TURNOS) ---
             tot_geral_vac = df_banco.groupby('vacina')['quantidade'].sum().astype(int).to_frame().T
             tot_geral_vac.index = ['TOTAL MUNICÍPIO']
             
@@ -521,7 +518,6 @@ with tab2:
             st.dataframe(destacar_linhas_tabela(tot_geral_vac), use_container_width=True)
             st.markdown("---")
 
-            # --- 2. TOTAL GERAL DETALHADO POR UNIDADE (SEM A COLUNA INFORMADO POR) ---
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False).astype(int)
             
@@ -712,9 +708,9 @@ with tab3:
                 nivel_h = ['distrito', 'unidade_saude'] if modo_h == "Estabelecimento (UBS)" else 'distrito'
                 lista_nivel_h = nivel_h if isinstance(nivel_h, list) else [nivel_h]
                 
+                tabelas_turnos_h = {}
                 turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
                 
-                # --- HISTÓRICO ORGANIZADO POR TURNO (VISÃO POR GRUPO - COM INFORMADO POR) ---
                 for t in turnos_lista_h:
                     df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
                     if not df_t_h.empty:
@@ -745,6 +741,7 @@ with tab3:
                             tot_turno_sh = cons_h[['ROTINA', 'COVID', 'TOTAL']].sum(numeric_only=True).astype(int)
                             cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
 
+                        tabelas_turnos_h[t] = cons_h_com_total
                         st.markdown(f"#### ⏰ {t} (Histórico)")
                         st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
                     else:
@@ -753,14 +750,12 @@ with tab3:
 
                 st.markdown("---")
 
-                # --- ÚNICO TOTAL GERAL POR VACINA DO HISTÓRICO (SOMA MUNICIPAL) ---
                 tot_geral_vac_h = df_banco_hist.groupby('vacina')['quantidade'].sum().astype(int).to_frame().T
                 tot_geral_vac_h.index = ['TOTAL MUNICÍPIO']
                 st.markdown("### 💉 Total Geral por Vacina (Histórico)")
                 st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
                 st.markdown("---")
 
-                # Total Geral Detalhado da Campanha Arquivada (SEM A COLUNA INFORMADO POR)
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
                 tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0, dropna=False).astype(int)
                 
@@ -796,6 +791,114 @@ with tab3:
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.rename(index={0: idx_tf_h})])
                 st.markdown("### 🏁 Detalhamento da Campanha Arquivada")
                 st.dataframe(destacar_linhas_tabela(df_geral_com_total_h), use_container_width=True)
+                
+                st.markdown("---")
+                
+                # --- BOTÕES DE DOWNLOAD (EXCEL E PDF) PARA O HISTÓRICO ---
+                col_dh1, col_dh2 = st.columns(2)
+                
+                buffer_xlsx_h = io.BytesIO()
+                with pd.ExcelWriter(buffer_xlsx_h, engine='openpyxl') as writer:
+                    tot_geral_vac_h.to_excel(writer, sheet_name='TOTAL_POR_VACINA')
+                    for t_nome, df_t_val_h in tabelas_turnos_h.items():
+                        sheet_name = t_nome.replace("(", "").replace(")", "").replace(" ", "_")[:31]
+                        df_t_val_h.to_excel(writer, sheet_name=sheet_name)
+                    df_geral_com_total_h.to_excel(writer, sheet_name='TOTAL_GERAL_DETALHADO')
+                    df_banco_hist.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
+                
+                col_dh1.download_button(
+                    "📥 Baixar Planilha do Histórico (Excel)", 
+                    data=buffer_xlsx_h.getvalue(), 
+                    file_name=f"Historico_Campanha_{id_sel}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+                buffer_pdf_h = io.BytesIO()
+                doc_h = SimpleDocTemplate(buffer_pdf_h, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
+                elements_h = []
+                
+                elements_h.append(Paragraph(f"<b>Relatório Histórico: {df_evento.iloc[0]['nome_campanha']} ({df_evento.iloc[0]['data_evento']})</b>", title_style))
+                elements_h.append(Spacer(1, 2))
+                
+                for t_nome, df_t_val_h in tabelas_turnos_h.items():
+                    elements_h.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                    df_t_pdf_h = df_t_val_h.reset_index()
+                    if isinstance(nivel_h, list):
+                        df_t_pdf_h.columns.values[0] = "Distrito"
+                        df_t_pdf_h.columns.values[1] = "UBS"
+                    else:
+                        df_t_pdf_h.columns.values[0] = "Distrito"
+                    
+                    table_data_th = [list(df_t_pdf_h.columns)] + [[str(val) for val in row] for row in df_t_pdf_h.values]
+                    t_turn_h = Table(table_data_th)
+                    
+                    style_pdf_th = [
+                        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0,0), (-1,0), 5.5),
+                        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                        ('TOPPADDING', (0,0), (-1,-1), 1),
+                    ]
+                    
+                    for r_idx, row in enumerate(df_t_pdf_h.values, start=1):
+                        row_str = " ".join([str(x) for x in row]).upper()
+                        if 'TOTAL PARCIAL' in row_str:
+                            style_pdf_th.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#fff3cd')))
+                            style_pdf_th.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+                        elif 'TOTAL DISTRITO' in row_str:
+                            style_pdf_th.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d1ecf1')))
+                            style_pdf_th.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+
+                    t_turn_h.setStyle(TableStyle(style_pdf_th))
+                    elements_h.append(t_turn_h)
+                    elements_h.append(Spacer(1, 3))
+
+                elements_h.append(Paragraph("<b>Total Geral Consolidado por Unidade (Histórico)</b>", section_style))
+                df_pdf_h = df_geral_com_total_h.reset_index()
+                if isinstance(nivel_h, list):
+                    df_pdf_h.columns.values[0] = "Distrito"
+                    df_pdf_h.columns.values[1] = "UBS"
+                else:
+                    df_pdf_h.columns.values[0] = "Distrito"
+
+                table_data_gh = [list(df_pdf_h.columns)] + [[str(val) for val in row] for row in df_pdf_h.values]
+                t_gh = Table(table_data_gh)
+                
+                style_pdf_gh = [
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ca02c')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,0), 5.5),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                    ('TOPPADDING', (0,0), (-1,-1), 1),
+                ]
+                
+                for r_idx, row in enumerate(df_pdf_h.values, start=1):
+                    row_str = " ".join([str(x) for x in row]).upper()
+                    if 'TOTAL FINAL' in row_str:
+                        style_pdf_gh.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d4edda')))
+                        style_pdf_gh.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+                    elif 'TOTAL DISTRITO' in row_str:
+                        style_pdf_gh.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d1ecf1')))
+                        style_pdf_gh.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+
+                t_gh.setStyle(TableStyle(style_pdf_gh))
+                elements_h.append(t_gh)
+                doc_h.build(elements_h)
+                
+                col_dh2.download_button(
+                    "📥 Baixar Relatório em PDF (Histórico)", 
+                    data=buffer_pdf_h.getvalue(), 
+                    file_name=f"Historico_Campanha_{id_sel}.pdf", 
+                    mime="application/pdf",
+                    use_container_width=True
+                )
                 
                 with st.expander("🗑️ Excluir este Histórico"):
                     if st.button(f"Confirmar Exclusão do Registro ID {id_sel}", type="primary"):
