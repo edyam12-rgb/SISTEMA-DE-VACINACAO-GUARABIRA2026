@@ -79,10 +79,17 @@ def inicializar_tabelas():
                     unidade_saude VARCHAR(100),
                     turno VARCHAR(50),
                     vacina VARCHAR(100),
-                    quantidade INT
+                    quantidade INT,
+                    lancado_por VARCHAR(50)
                 )
             """))
             s.commit()
+
+            try:
+                s.execute(text("ALTER TABLE registros_vacinacao ADD COLUMN IF NOT EXISTS lancado_por VARCHAR(50)"))
+                s.commit()
+            except:
+                s.rollback()
 
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS historico_dias_d (
@@ -367,18 +374,20 @@ with tab1:
 
     if st.button("💾 Salvar Lançamento", type="primary"):
         try:
+            usuario_atual = st.session_state.username
             with conn.session as s:
                 s.execute(text("DELETE FROM registros_vacinacao WHERE distrito = :distrito AND unidade_saude = :ubs AND turno = :turno"), {"distrito": st.session_state.sel_distrito_ativo, "ubs": st.session_state.sel_ubs_ativo, "turno": st.session_state.sel_turno_ativo})
                 for _, row in df_editado[df_editado["QUANTIDADE"] > 0].iterrows():
                     s.execute(text("""
-                        INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade) 
-                        VALUES (:distrito, :ubs, :turno, :vacina, :quantidade)
+                        INSERT INTO registros_vacinacao (distrito, unidade_saude, turno, vacina, quantidade, lancado_por) 
+                        VALUES (:distrito, :ubs, :turno, :vacina, :quantidade, :user)
                     """), {
                         "distrito": st.session_state.sel_distrito_ativo, 
                         "ubs": st.session_state.sel_ubs_ativo, 
                         "turno": st.session_state.sel_turno_ativo, 
                         "vacina": row["VACINA"], 
-                        "quantidade": row["QUANTIDADE"]
+                        "quantidade": row["QUANTIDADE"],
+                        "user": usuario_atual
                     })
                 s.commit()
                 st.success("✅ Salvo com sucesso!")
@@ -445,7 +454,14 @@ with tab2:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
             
-            nivel = ['distrito', 'unidade_saude'] if modo == "Estabelecimento (UBS)" else 'distrito'
+            if modo == "Estabelecimento (UBS)":
+                if 'lancado_por' in df_banco.columns and df_banco['lancado_por'].notna().any():
+                    nivel = ['distrito', 'unidade_saude', 'lancado_por']
+                else:
+                    nivel = ['distrito', 'unidade_saude']
+            else:
+                nivel = 'distrito'
+
             lista_nivel = nivel if isinstance(nivel, list) else [nivel]
             
             tabelas_turnos = {}
@@ -461,13 +477,17 @@ with tab2:
                     if modo == "Estabelecimento (UBS)":
                         soma_distrito = cons.groupby(level=0).sum()
                         if not soma_distrito.empty:
-                            soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
+                            if len(lista_nivel) == 3:
+                                soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_distrito.index])
+                            else:
+                                soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
                             cons = pd.concat([cons, soma_distrito]).sort_index()
                     
                     if isinstance(nivel, list):
                         linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
                         tot_turno_s = cons.loc[linhas_ubs_t].sum(numeric_only=True)
-                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                        idx_tp = ('TOTAL PARCIAL', 'TODOS OS POSTOS', '-') if len(lista_nivel) == 3 else ('TOTAL PARCIAL', 'TODOS OS POSTOS')
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: idx_tp})])
                     else:
                         tot_turno_s = cons.sum(numeric_only=True)
                         cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
@@ -509,7 +529,10 @@ with tab2:
             if modo == "Estabelecimento (UBS)":
                 soma_geral_distrito = df_geral.groupby(level=0).sum()
                 if not soma_geral_distrito.empty:
-                    soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
+                    if len(lista_nivel) == 3:
+                        soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_geral_distrito.index])
+                    else:
+                        soma_geral_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_geral_distrito.index])
                     df_geral = pd.concat([df_geral, soma_geral_distrito]).sort_index()
 
             if isinstance(nivel, list):
@@ -518,7 +541,10 @@ with tab2:
             else:
                 total_final_serie = df_geral.sum(numeric_only=True)
 
-            idx_total_final = ('TOTAL FINAL', '') if isinstance(nivel, list) else 'TOTAL FINAL'
+            if isinstance(nivel, list):
+                idx_total_final = ('TOTAL FINAL', '', '-') if len(lista_nivel) == 3 else ('TOTAL FINAL', '')
+            else:
+                idx_total_final = 'TOTAL FINAL'
 
             df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: idx_total_final})])
             st.markdown("### 🏁 Detalhamento Consolidado")
@@ -566,6 +592,8 @@ with tab2:
                 if isinstance(nivel, list):
                     df_t_pdf.columns.values[0] = "Distrito"
                     df_t_pdf.columns.values[1] = "UBS"
+                    if len(nivel) == 3:
+                        df_t_pdf.columns.values[2] = "Informado Por"
                 else:
                     df_t_pdf.columns.values[0] = "Distrito"
                 
@@ -601,6 +629,8 @@ with tab2:
             if isinstance(nivel, list):
                 df_pdf.columns.values[0] = "Distrito"
                 df_pdf.columns.values[1] = "UBS"
+                if len(nivel) == 3:
+                    df_pdf.columns.values[2] = "Informado Por"
             else:
                 df_pdf.columns.values[0] = "Distrito"
 
@@ -669,7 +699,14 @@ with tab3:
                 df_banco_hist['GRUPO_TURNO'] = df_banco_hist['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
                 modo_h = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_hist")
                 
-                nivel_h = ['distrito', 'unidade_saude'] if modo_h == "Estabelecimento (UBS)" else 'distrito'
+                if modo_h == "Estabelecimento (UBS)":
+                    if 'lancado_por' in df_banco_hist.columns and df_banco_hist['lancado_por'].notna().any():
+                        nivel_h = ['distrito', 'unidade_saude', 'lancado_por']
+                    else:
+                        nivel_h = ['distrito', 'unidade_saude']
+                else:
+                    nivel_h = 'distrito'
+
                 lista_nivel_h = nivel_h if isinstance(nivel_h, list) else [nivel_h]
                 
                 turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
@@ -683,13 +720,17 @@ with tab3:
                         if modo_h == "Estabelecimento (UBS)":
                             soma_dist_h = cons_h.groupby(level=0).sum()
                             if not soma_dist_h.empty:
-                                soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
+                                if len(lista_nivel_h) == 3:
+                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_dist_h.index])
+                                else:
+                                    soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
                                 cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
                         
                         if isinstance(nivel_h, list):
                             linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
                             tot_turno_sh = cons_h.loc[linhas_ubs_th].sum(numeric_only=True)
-                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                            idx_tph = ('TOTAL PARCIAL', 'TODOS OS POSTOS', '-') if len(lista_nivel_h) == 3 else ('TOTAL PARCIAL', 'TODOS OS POSTOS')
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: idx_tph})])
                         else:
                             tot_turno_sh = cons_h.sum(numeric_only=True)
                             cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
@@ -728,7 +769,10 @@ with tab3:
                 if modo_h == "Estabelecimento (UBS)":
                     soma_g_dist_h = df_geral_h.groupby(level=0).sum()
                     if not soma_g_dist_h.empty:
-                        soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
+                        if len(lista_nivel_h) == 3:
+                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO", "-") for d in soma_g_dist_h.index])
+                        else:
+                            soma_g_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_g_dist_h.index])
                         df_geral_h = pd.concat([df_geral_h, soma_g_dist_h]).sort_index()
 
                 if isinstance(nivel_h, list):
@@ -737,7 +781,7 @@ with tab3:
                 else:
                     tot_final_h = df_geral_h.sum(numeric_only=True)
 
-                idx_tf_h = ('TOTAL FINAL', '') if isinstance(nivel_h, list) else 'TOTAL FINAL'
+                idx_tf_h = ('TOTAL FINAL', '', '-') if len(lista_nivel_h) == 3 else ('TOTAL FINAL', '')
 
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: idx_tf_h})])
                 st.markdown("### 🏁 Detalhamento da Campanha Arquivada")
