@@ -96,6 +96,11 @@ def inicializar_tabelas():
             except:
                 s.rollback()
 
+            # Padroniza eventuais variações do nome do posto no banco ativo
+            s.execute(text("UPDATE registros_vacinacao SET unidade_saude = 'Pirpiri' WHERE LOWER(unidade_saude) LIKE 'pirpiri%'"))
+            s.execute(text("UPDATE usuarios SET ubs = 'Pirpiri' WHERE LOWER(ubs) LIKE 'pirpiri%'"))
+            s.commit()
+
             s.execute(text("""
                 CREATE TABLE IF NOT EXISTS historico_dias_d (
                     id SERIAL PRIMARY KEY,
@@ -153,6 +158,8 @@ if not st.session_state.logado:
                         st.session_state.perfil = df_user.iloc[0]["perfil"]
                         st.session_state.distrito_user = df_user.iloc[0]["distrito"] or "Geral"
                         st.session_state.ubs_user = df_user.iloc[0]["ubs"] or "Geral"
+                        if "pirpiri" in st.session_state.ubs_user.lower():
+                            st.session_state.ubs_user = "Pirpiri"
                         st.rerun()
                     else:
                         st.sidebar.error("Usuário ou senha incorretos!")
@@ -461,6 +468,7 @@ with tab2:
             else:
                 df_banco['lancado_por'] = df_banco['lancado_por'].fillna('Não Informado').replace('', 'Não Informado')
 
+            df_banco['unidade_saude'] = df_banco['unidade_saude'].apply(lambda u: 'Pirpiri' if 'pirpiri' in str(u).lower() else u)
             df_banco['quantidade'] = df_banco['quantidade'].fillna(0).astype(int)
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
             modo = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
@@ -699,6 +707,7 @@ with tab3:
                 else:
                     df_banco_hist['lancado_por'] = df_banco_hist['lancado_por'].fillna('Não Informado').replace('', 'Não Informado')
 
+                df_banco_hist['unidade_saude'] = df_banco_hist['unidade_saude'].apply(lambda u: 'Pirpiri' if 'pirpiri' in str(u).lower() else u)
                 df_banco_hist['quantidade'] = df_banco_hist['quantidade'].fillna(0).astype(int)
                 st.success(f"📅 **Campanha:** {df_evento.iloc[0]['nome_campanha']} | **Data:** {df_evento.iloc[0]['data_evento']}")
                 
@@ -794,7 +803,6 @@ with tab3:
                 
                 st.markdown("---")
                 
-                # --- BOTÕES DE DOWNLOAD (EXCEL E PDF) PARA O HISTÓRICO ---
                 col_dh1, col_dh2 = st.columns(2)
                 
                 buffer_xlsx_h = io.BytesIO()
