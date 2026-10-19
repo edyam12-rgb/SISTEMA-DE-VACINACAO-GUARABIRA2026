@@ -475,21 +475,49 @@ with tab2:
 
         if not df_banco.empty:
             df_banco['GRUPO_TURNO'] = df_banco['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
-            
-            # --- 1. TOTAL GERAL MUNICIPAL POR VACINA (Soma dos dois turnos) ---
-            tot_geral_vac = df_banco.groupby('vacina')['quantidade'].sum().to_frame().T
-            tot_geral_vac.index = ['TOTAL MUNICÍPIO']
-            
-            st.markdown("### 💉 Total Geral por Vacina (Município)")
-            st.dataframe(destacar_linhas_tabela(tot_geral_vac), use_container_width=True)
-            st.markdown("---")
-
-            # --- 2. DETALHAMENTO POR DISTRITO / UBS ---
             modo = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_rel")
             
             nivel = ['distrito', 'unidade_saude'] if modo == "Estabelecimento (UBS)" else 'distrito'
             lista_nivel = nivel if isinstance(nivel, list) else [nivel]
+            
+            tabelas_turnos = {}
+            turnos_lista = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
+            
+            # --- TABELAS ORGANIZADAS POR TURNO ---
+            for t in turnos_lista:
+                df_t = df_banco[df_banco['turno'] == t]
+                if not df_t.empty:
+                    # 1. Visão por Grupo do Turno
+                    cons = df_t.groupby(lista_nivel + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                    cons['TOTAL'] = cons.sum(axis=1)
+                    
+                    if modo == "Estabelecimento (UBS)":
+                        soma_distrito = cons.groupby(level=0).sum()
+                        if not soma_distrito.empty:
+                            soma_distrito.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_distrito.index])
+                            cons = pd.concat([cons, soma_distrito]).sort_index()
+                    
+                    if isinstance(nivel, list):
+                        linhas_ubs_t = [idx for idx in cons.index if idx[1] != "TOTAL DISTRITO"]
+                        tot_turno_s = cons.loc[linhas_ubs_t].sum(numeric_only=True)
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                    else:
+                        tot_turno_s = cons.sum(numeric_only=True)
+                        cons_com_total = pd.concat([cons, tot_turno_s.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
 
+                    tabelas_turnos[t] = cons_com_total
+                    st.markdown(f"#### ⏰ {t} - Visão por Grupo")
+                    st.dataframe(destacar_linhas_tabela(cons_com_total), use_container_width=True)
+
+                    # 2. Total Geral por Vacina do Turno (Município)
+                    tot_geral_vac_turno = df_t.groupby('vacina')['quantidade'].sum().to_frame().T
+                    tot_geral_vac_turno.index = ['TOTAL MUNICÍPIO']
+                    
+                    st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Município)")
+                    st.dataframe(destacar_linhas_tabela(tot_geral_vac_turno), use_container_width=True)
+                    st.markdown("---")
+
+            # --- TOTAL GERAL ACUMULADO ---
             df_banco['VAC_UPPER'] = df_banco['vacina'].str.upper()
             tabela = df_banco.pivot_table(index=nivel, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
             
@@ -524,7 +552,7 @@ with tab2:
             idx_total_final = ('TOTAL FINAL', '') if isinstance(nivel, list) else 'TOTAL FINAL'
 
             df_geral_com_total = pd.concat([df_geral, total_final_serie.to_frame().T.rename(index={0: idx_total_final})])
-            st.markdown("### 🏁 Detalhamento Consolidado")
+            st.markdown("### 🏁 Total Geral Acumulado (Manhã + Tarde)")
             st.dataframe(destacar_linhas_tabela(df_geral_com_total), use_container_width=True)
             
             st.markdown("---")
@@ -533,7 +561,9 @@ with tab2:
             
             buffer_xlsx = io.BytesIO()
             with pd.ExcelWriter(buffer_xlsx, engine='openpyxl') as writer:
-                tot_geral_vac.to_excel(writer, sheet_name='TOTAL_POR_VACINA')
+                for t_nome, df_t_val in tabelas_turnos.items():
+                    sheet_name = t_nome.replace("(", "").replace(")", "").replace(" ", "_")[:31]
+                    df_t_val.to_excel(writer, sheet_name=sheet_name)
                 df_geral_com_total.to_excel(writer, sheet_name='TOTAL_GERAL_DETALHADO')
                 df_banco.to_excel(writer, sheet_name='HISTORICO_LANCAMENTOS', index=False)
             
@@ -560,6 +590,42 @@ with tab2:
             elements.append(Paragraph("<b>Relatório Consolidado - Sistema de Vacinação Dia D</b>", title_style))
             elements.append(Spacer(1, 2))
             
+            for t_nome, df_t_val in tabelas_turnos.items():
+                elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                df_t_pdf = df_t_val.reset_index()
+                if isinstance(nivel, list):
+                    df_t_pdf.columns.values[0] = "Distrito"
+                    df_t_pdf.columns.values[1] = "UBS"
+                else:
+                    df_t_pdf.columns.values[0] = "Distrito"
+                
+                table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
+                t_turn = Table(table_data_t)
+                
+                style_pdf_t = [
+                    ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f77b4')),
+                    ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                    ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0,0), (-1,0), 5.5),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+                    ('TOPPADDING', (0,0), (-1,-1), 1),
+                ]
+                
+                for r_idx, row in enumerate(df_t_pdf.values, start=1):
+                    row_str = " ".join([str(x) for x in row]).upper()
+                    if 'TOTAL PARCIAL' in row_str:
+                        style_pdf_t.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#fff3cd')))
+                        style_pdf_t.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+                    elif 'TOTAL DISTRITO' in row_str:
+                        style_pdf_t.append(('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#d1ecf1')))
+                        style_pdf_t.append(('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold'))
+
+                t_turn.setStyle(TableStyle(style_pdf_t))
+                elements.append(t_turn)
+                elements.append(Spacer(1, 3))
+
             elements.append(Paragraph("<b>Total Geral Consolidado por Unidade</b>", section_style))
             df_pdf = df_geral_com_total.reset_index()
             if isinstance(nivel, list):
@@ -630,18 +696,44 @@ with tab3:
                 
                 st.success(f"📅 **Campanha:** {df_evento.iloc[0]['nome_campanha']} | **Data:** {df_evento.iloc[0]['data_evento']}")
                 
-                # Total Geral por Vacina do Histórico (Soma total acumulada)
-                tot_geral_vac_h = df_banco_hist.groupby('vacina')['quantidade'].sum().to_frame().T
-                tot_geral_vac_h.index = ['TOTAL MUNICÍPIO']
-                st.markdown("### 💉 Total Geral por Vacina (Histórico)")
-                st.dataframe(destacar_linhas_tabela(tot_geral_vac_h), use_container_width=True)
-                st.markdown("---")
-
+                df_banco_hist['GRUPO_TURNO'] = df_banco_hist['vacina'].apply(lambda x: 'COVID' if ("COVID" in x.upper() or "PFIZER" in x.upper()) else 'ROTINA')
                 modo_h = st.radio("🔍 Visualizar detalhamento por:", ["Distrito", "Estabelecimento (UBS)"], horizontal=True, key="radio_modo_hist")
                 
                 nivel_h = ['distrito', 'unidade_saude'] if modo_h == "Estabelecimento (UBS)" else 'distrito'
                 lista_nivel_h = nivel_h if isinstance(nivel_h, list) else [nivel_h]
                 
+                turnos_lista_h = ["Manhã (até as 12h)", "Tarde (das 12h às 16h)"]
+                
+                # --- HISTÓRICO ORGANIZADO POR TURNO ---
+                for t in turnos_lista_h:
+                    df_t_h = df_banco_hist[df_banco_hist['turno'] == t]
+                    if not df_t_h.empty:
+                        cons_h = df_t_h.groupby(lista_nivel_h + ['GRUPO_TURNO'])['quantidade'].sum().unstack(fill_value=0)
+                        cons_h['TOTAL'] = cons_h.sum(axis=1)
+                        if modo_h == "Estabelecimento (UBS)":
+                            soma_dist_h = cons_h.groupby(level=0).sum()
+                            if not soma_dist_h.empty:
+                                soma_dist_h.index = pd.MultiIndex.from_tuples([(d, "TOTAL DISTRITO") for d in soma_dist_h.index])
+                                cons_h = pd.concat([cons_h, soma_dist_h]).sort_index()
+                        
+                        if isinstance(nivel_h, list):
+                            linhas_ubs_th = [idx for idx in cons_h.index if idx[1] != "TOTAL DISTRITO"]
+                            tot_turno_sh = cons_h.loc[linhas_ubs_th].sum(numeric_only=True)
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: ('TOTAL PARCIAL', 'TODOS OS POSTOS')})])
+                        else:
+                            tot_turno_sh = cons_h.sum(numeric_only=True)
+                            cons_h_com_total = pd.concat([cons_h, tot_turno_sh.to_frame().T.rename(index={0: 'TOTAL PARCIAL TURNO'})])
+
+                        st.markdown(f"#### ⏰ {t} (Histórico)")
+                        st.dataframe(destacar_linhas_tabela(cons_h_com_total), use_container_width=True)
+
+                        tot_geral_vac_h_t = df_t_h.groupby('vacina')['quantidade'].sum().to_frame().T
+                        tot_geral_vac_h_t.index = ['TOTAL MUNICÍPIO']
+                        st.markdown(f"#### 💉 {t} - Total Geral por Vacina (Histórico)")
+                        st.dataframe(destacar_linhas_tabela(tot_geral_vac_h_t), use_container_width=True)
+                        st.markdown("---")
+                
+                # Total Geral da Campanha Arquivada
                 df_banco_hist['VAC_UPPER'] = df_banco_hist['vacina'].str.upper()
                 tabela_h = df_banco_hist.pivot_table(index=nivel_h, columns='VAC_UPPER', values='quantidade', aggfunc='sum', fill_value=0)
                 
@@ -675,7 +767,7 @@ with tab3:
                 idx_tf_h = ('TOTAL FINAL', '') if isinstance(nivel_h, list) else 'TOTAL FINAL'
 
                 df_geral_com_total_h = pd.concat([df_geral_h, tot_final_h.to_frame().T.rename(index={0: idx_tf_h})])
-                st.markdown("### 🏁 Detalhamento da Campanha Arquivada")
+                st.markdown("### 🏁 Detalhamento da Campanha Arquivada (Manhã + Tarde)")
                 st.dataframe(destacar_linhas_tabela(df_geral_com_total_h), use_container_width=True)
                 
                 with st.expander("🗑️ Excluir este Histórico"):
