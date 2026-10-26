@@ -630,11 +630,13 @@ with tab2:
             for t_nome, df_t_val in tabelas_turnos.items():
                 elements.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
                 df_t_pdf = df_t_val.reset_index()
+                cols_t = list(df_t_pdf.columns)
                 if isinstance(nivel, list):
-                    df_t_pdf.columns.values[0] = "Distrito"
-                    df_t_pdf.columns.values[1] = "UBS"
+                    cols_t[0] = "Distrito"
+                    cols_t[1] = "UBS"
                 else:
-                    df_t_pdf.columns.values[0] = "Distrito"
+                    cols_t[0] = "Distrito"
+                df_t_pdf.columns = cols_t
                 
                 table_data_t = [list(df_t_pdf.columns)] + [[str(val) for val in row] for row in df_t_pdf.values]
                 t_turn = Table(table_data_t)
@@ -665,11 +667,13 @@ with tab2:
 
             elements.append(Paragraph("<b>Total Geral Consolidado por Unidade</b>", section_style))
             df_pdf = df_geral_com_total.reset_index()
+            cols_p = list(df_pdf.columns)
             if isinstance(nivel, list):
-                df_pdf.columns.values[0] = "Distrito"
-                df_pdf.columns.values[1] = "UBS"
+                cols_p[0] = "Distrito"
+                cols_p[1] = "UBS"
             else:
-                df_pdf.columns.values[0] = "Distrito"
+                cols_p[0] = "Distrito"
+            df_pdf.columns = cols_p
 
             table_data = [list(df_pdf.columns)] + [[str(val) for val in row] for row in df_pdf.values]
             t = Table(table_data)
@@ -845,11 +849,13 @@ with tab3:
                 for t_nome, df_t_val_h in tabelas_turnos_h.items():
                     elements_h.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style_h))
                     df_t_pdf_h = df_t_val_h.reset_index()
+                    cols_th = list(df_t_pdf_h.columns)
                     if isinstance(nivel_h, list):
-                        df_t_pdf_h.columns.values[0] = "Distrito"
-                        df_t_pdf_h.columns.values[1] = "UBS"
+                        cols_th[0] = "Distrito"
+                        cols_th[1] = "UBS"
                     else:
-                        df_t_pdf_h.columns.values[0] = "Distrito"
+                        cols_th[0] = "Distrito"
+                    df_t_pdf_h.columns = cols_th
                     
                     table_data_th = [list(df_t_pdf_h.columns)] + [[str(val) for val in row] for row in df_t_pdf_h.values]
                     t_turn_h = Table(table_data_th)
@@ -880,11 +886,13 @@ with tab3:
 
                 elements_h.append(Paragraph("<b>Total Geral Consolidado por Unidade (Histórico)</b>", section_style_h))
                 df_pdf_h = df_geral_com_total_h.reset_index()
+                cols_ph = list(df_pdf_h.columns)
                 if isinstance(nivel_h, list):
-                    df_pdf_h.columns.values[0] = "Distrito"
-                    df_pdf_h.columns.values[1] = "UBS"
+                    cols_ph[0] = "Distrito"
+                    cols_ph[1] = "UBS"
                 else:
-                    df_pdf_h.columns.values[0] = "Distrito"
+                    cols_ph[0] = "Distrito"
+                df_pdf_h.columns = cols_ph
 
                 table_data_gh = [list(df_pdf_h.columns)] + [[str(val) for val in row] for row in df_pdf_h.values]
                 t_gh = Table(table_data_gh)
