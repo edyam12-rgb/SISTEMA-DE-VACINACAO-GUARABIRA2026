@@ -830,12 +830,20 @@ with tab3:
                 buffer_pdf_h = io.BytesIO()
                 doc_h = SimpleDocTemplate(buffer_pdf_h, pagesize=landscape(letter), rightMargin=15, leftMargin=15, topMargin=15, bottomMargin=15)
                 elements_h = []
+                styles_h = getSampleStyleSheet()
                 
-                elements_h.append(Paragraph(f"<b>Relatório Histórico: {df_evento.iloc[0]['nome_campanha']} ({df_evento.iloc[0]['data_evento']})</b>", title_style))
+                title_style_h = ParagraphStyle(
+                    'TitleStyleH', parent=styles_h['Heading1'], fontSize=13, textColor=colors.HexColor('#1f77b4'), alignment=1, spaceAfter=6
+                )
+                section_style_h = ParagraphStyle(
+                    'SectionStyleH', parent=styles_h['Heading2'], fontSize=9, textColor=colors.HexColor('#333333'), spaceBefore=4, spaceAfter=2
+                )
+                
+                elements_h.append(Paragraph(f"<b>Relatório Histórico: {df_evento.iloc[0]['nome_campanha']} ({df_evento.iloc[0]['data_evento']})</b>", title_style_h))
                 elements_h.append(Spacer(1, 2))
                 
                 for t_nome, df_t_val_h in tabelas_turnos_h.items():
-                    elements_h.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style))
+                    elements_h.append(Paragraph(f"<b>Turno: {t_nome}</b>", section_style_h))
                     df_t_pdf_h = df_t_val_h.reset_index()
                     if isinstance(nivel_h, list):
                         df_t_pdf_h.columns.values[0] = "Distrito"
@@ -870,7 +878,7 @@ with tab3:
                     elements_h.append(t_turn_h)
                     elements_h.append(Spacer(1, 3))
 
-                elements_h.append(Paragraph("<b>Total Geral Consolidado por Unidade (Histórico)</b>", section_style))
+                elements_h.append(Paragraph("<b>Total Geral Consolidado por Unidade (Histórico)</b>", section_style_h))
                 df_pdf_h = df_geral_com_total_h.reset_index()
                 if isinstance(nivel_h, list):
                     df_pdf_h.columns.values[0] = "Distrito"
